@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import calendar
+import copy
 import hashlib
 import json
 import os
@@ -15,6 +16,7 @@ import socket
 import socketserver
 import ssl
 import struct
+import sys
 import threading
 import time
 import traceback
@@ -41,6 +43,9 @@ CHANNEL_INFO_TTL_SECONDS = 5 * 60
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 STALE_PROCESSING_RECEIPT_SECONDS = 2 * 60
 FAILED_RECEIPT_RETRY_SECONDS = 60
+BUFFERED_DELIVERY_REPLAY_START_DELAY_SECONDS = 5
+BUFFERED_DELIVERY_REPLAY_INTERVAL_SECONDS = 60
+BUFFERED_DELIVERY_REPLAY_LIMIT = 500
 WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -835,6 +840,166 @@ def persist_ingress_receipt(payload: dict[str, Any]) -> dict[str, Any]:
     return common.save_chat_ingress(payload)
 
 
+def buffered_delivery_payload(message: str, intent: str = "default") -> dict[str, str]:
+    normalized_intent = str(intent or "default").strip() or "default"
+    return {"message": str(message), "intent": normalized_intent}
+
+
+def buffered_target(
+    session_name: str,
+    *,
+    status: str,
+    idempotency_key: str,
+    message: str,
+    intent: str = "default",
+    error: str = "",
+    response: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_status = str(status).strip()
+    target: dict[str, Any] = {
+        "session_name": str(session_name).strip(),
+        "status": normalized_status,
+        "idempotency_key": str(idempotency_key).strip(),
+    }
+    if normalized_status in {"failed", "pending"}:
+        target["buffered_delivery"] = buffered_delivery_payload(message, intent)
+    if error:
+        target["error"] = str(error)
+    if response is not None:
+        target["response"] = response
+    return target
+
+
+def _target_buffered_delivery(target: dict[str, Any]) -> dict[str, str] | None:
+    status = str(target.get("status", "")).strip()
+    if status not in {"failed", "pending"}:
+        return None
+    buffered_delivery = target.get("buffered_delivery")
+    if not isinstance(buffered_delivery, dict):
+        return None
+    session_name = str(target.get("session_name", "")).strip()
+    idempotency_key = str(target.get("idempotency_key", "")).strip()
+    message = str(buffered_delivery.get("message", ""))
+    intent = str(buffered_delivery.get("intent", "default")).strip() or "default"
+    if not session_name or not idempotency_key or not message.strip():
+        return None
+    return {
+        "session_name": session_name,
+        "idempotency_key": idempotency_key,
+        "message": message,
+        "intent": intent,
+    }
+
+
+def _receipt_ready_for_buffered_replay(receipt: dict[str, Any]) -> bool:
+    status = str(receipt.get("status", "")).strip()
+    age = utc_age_seconds(str(receipt.get("updated_at", "")).strip())
+    if status in {"failed", "partial_failed"}:
+        return age >= FAILED_RECEIPT_RETRY_SECONDS
+    if status == "pending":
+        return age >= STALE_PROCESSING_RECEIPT_SECONDS
+    return False
+
+
+def _receipt_has_buffered_targets(receipt: dict[str, Any]) -> bool:
+    targets = receipt.get("targets")
+    if not isinstance(targets, list):
+        return False
+    return any(isinstance(target, dict) and _target_buffered_delivery(target) for target in targets)
+
+
+def _replay_status_for_targets(targets: list[dict[str, Any]]) -> str:
+    statuses = [str(target.get("status", "")).strip() for target in targets]
+    if statuses and all(status == "delivered" for status in statuses):
+        return "delivered"
+    if any(status == "delivered" for status in statuses):
+        return "partial_failed"
+    return "failed"
+
+
+def _log_buffered_delivery_replay(message: str) -> None:
+    print(f"[{common.current_service_name() or 'discord-gateway'}] {message}", file=sys.stderr, flush=True)
+
+
+def _apply_buffered_replay_side_effects(receipt: dict[str, Any]) -> None:
+    if str(receipt.get("route_kind", "")).strip() != "room_launch_thread":
+        return
+    launch_id = str(receipt.get("launch_id", "")).strip()
+    qualified_handle = str(receipt.get("qualified_handle", "")).strip()
+    if not launch_id or not qualified_handle:
+        return
+    common.set_room_launch_last_addressed(launch_id, qualified_handle)
+
+
+def replay_buffered_ingress_deliveries(limit: int = BUFFERED_DELIVERY_REPLAY_LIMIT) -> dict[str, int]:
+    stats = {"attempted": 0, "delivered": 0, "failed": 0, "skipped": 0}
+    for receipt in common.list_recent_chat_ingress(limit=max(1, int(limit))):
+        if not _receipt_ready_for_buffered_replay(receipt) or not _receipt_has_buffered_targets(receipt):
+            continue
+        ingress_id = str(receipt.get("ingress_id", "")).strip()
+        if not ingress_id:
+            continue
+        process_lock = ingress_process_lock(ingress_id)
+        if not process_lock.acquire(blocking=False):
+            stats["skipped"] += 1
+            continue
+        try:
+            latest_receipt = common.load_chat_ingress(ingress_id) or receipt
+            if not _receipt_ready_for_buffered_replay(latest_receipt) or not _receipt_has_buffered_targets(latest_receipt):
+                continue
+            raw_targets = latest_receipt.get("targets")
+            if not isinstance(raw_targets, list):
+                continue
+            updated_targets: list[dict[str, Any]] = []
+            changed = False
+            delivered_this_receipt = 0
+            for raw_target in raw_targets:
+                target = copy.deepcopy(raw_target) if isinstance(raw_target, dict) else {"status": str(raw_target)}
+                delivery = _target_buffered_delivery(target)
+                if delivery is None:
+                    updated_targets.append(target)
+                    continue
+                stats["attempted"] += 1
+                changed = True
+                try:
+                    response = common.deliver_session_message(
+                        delivery["session_name"],
+                        delivery["message"],
+                        idempotency_key=delivery["idempotency_key"],
+                        intent=delivery["intent"],
+                    )
+                except common.GCAPIError as exc:
+                    stats["failed"] += 1
+                    target["status"] = "failed"
+                    target["error"] = str(exc)
+                    target["last_replay_attempt_at"] = common.utcnow()
+                    _log_buffered_delivery_replay(f"buffered ingress {ingress_id} replay failed for {delivery['session_name']}: {exc}")
+                    updated_targets.append(target)
+                    continue
+                delivered_this_receipt += 1
+                stats["delivered"] += 1
+                delivered_target = {
+                    "session_name": delivery["session_name"],
+                    "status": "delivered",
+                    "idempotency_key": delivery["idempotency_key"],
+                    "response": response,
+                    "replayed_at": common.utcnow(),
+                }
+                updated_targets.append(delivered_target)
+            if not changed:
+                continue
+            latest_receipt["targets"] = updated_targets
+            latest_receipt["status"] = _replay_status_for_targets(updated_targets)
+            latest_receipt["last_buffered_replay_at"] = common.utcnow()
+            if delivered_this_receipt:
+                _apply_buffered_replay_side_effects(latest_receipt)
+                _log_buffered_delivery_replay(f"buffered ingress {ingress_id} replayed {delivered_this_receipt} target(s)")
+            persist_ingress_receipt(latest_receipt)
+        finally:
+            process_lock.release()
+    return stats
+
+
 def save_rejected_ingress_receipt(
     message: dict[str, Any],
     bot_user_id: str,
@@ -1070,19 +1235,35 @@ def process_room_launch_message(
         mentioned_handles=mentioned_handles,
         ingress_id=ingress_id,
     )
+    idempotency_key = f"ingress:{ingress_id}:target:{target_selector}"
     try:
         response = common.deliver_session_message(
             target_selector,
             envelope,
-            idempotency_key=f"ingress:{ingress_id}:target:{target_selector}",
+            idempotency_key=idempotency_key,
         )
     except common.GCAPIError as exc:
         receipt["status"] = "failed"
-        receipt["targets"] = [{"session_name": target_selector, "status": "failed", "error": str(exc)}]
+        receipt["targets"] = [
+            buffered_target(
+                target_selector,
+                status="failed",
+                idempotency_key=idempotency_key,
+                message=envelope,
+                error=str(exc),
+            )
+        ]
         receipt = persist_ingress_receipt(receipt)
         return {"status": "failed", "ingress_id": ingress_id, "receipt": receipt}
     receipt["status"] = "delivered"
-    receipt["targets"] = [{"session_name": target_selector, "status": "delivered", "response": response}]
+    receipt["targets"] = [
+        {
+            "session_name": target_selector,
+            "status": "delivered",
+            "idempotency_key": idempotency_key,
+            "response": response,
+        }
+    ]
     receipt = persist_ingress_receipt(receipt)
     return {"status": "delivered", "ingress_id": ingress_id, "receipt": receipt}
 
@@ -1220,22 +1401,38 @@ def process_room_launch_thread_message(
         routing_mode=routing_mode,
         reply_to_id=reply_to_id,
     )
+    idempotency_key = f"ingress:{ingress_id}:target:{target_selector}"
     try:
         response = common.deliver_session_message(
             target_selector,
             envelope,
-            idempotency_key=f"ingress:{ingress_id}:target:{target_selector}",
+            idempotency_key=idempotency_key,
         )
     except common.GCAPIError as exc:
         receipt["status"] = "failed"
-        receipt["targets"] = [{"session_name": target_selector, "status": "failed", "error": str(exc)}]
+        receipt["targets"] = [
+            buffered_target(
+                target_selector,
+                status="failed",
+                idempotency_key=idempotency_key,
+                message=envelope,
+                error=str(exc),
+            )
+        ]
         receipt = persist_ingress_receipt(receipt)
         return {"status": "failed", "ingress_id": ingress_id, "receipt": receipt}
     updated_launch = common.set_room_launch_last_addressed(str(launch.get("launch_id", "")).strip(), target_handle)
     if isinstance(updated_launch, dict):
         launch = updated_launch
     receipt["status"] = "delivered"
-    receipt["targets"] = [{"session_name": target_selector, "status": "delivered", "response": response}]
+    receipt["targets"] = [
+        {
+            "session_name": target_selector,
+            "status": "delivered",
+            "idempotency_key": idempotency_key,
+            "response": response,
+        }
+    ]
     receipt = persist_ingress_receipt(receipt)
     return {"status": "delivered", "ingress_id": ingress_id, "receipt": receipt}
 
@@ -1578,12 +1775,14 @@ def process_inbound_message(message: dict[str, Any], bot_user_id: str) -> dict[s
             except common.GCAPIError as exc:
                 failures += 1
                 updated_targets.append(
-                    {
-                        "session_name": target,
-                        "status": "failed",
-                        "idempotency_key": idempotency_key,
-                        "error": str(exc),
-                    }
+                    buffered_target(
+                        target,
+                        status="failed",
+                        idempotency_key=idempotency_key,
+                        message=envelope,
+                        intent="follow_up",
+                        error=str(exc),
+                    )
                 )
         receipt["targets"] = updated_targets
         receipt["status"] = "delivered" if failures == 0 else ("partial_failed" if failures < len(targets) else "failed")
@@ -1805,12 +2004,20 @@ class GatewayWorker:
         self._stop_lock = threading.Lock()
         self.message_queue: queue.Queue[tuple[dict[str, Any], str] | None] = queue.Queue(maxsize=GATEWAY_MAX_PENDING_MESSAGES)
         self.worker_threads: list[threading.Thread] = []
+        self.buffered_replay_thread: threading.Thread | None = None
         self._current_ws_lock = threading.Lock()
         self._current_ws: GatewayWebSocket | None = None
         for index in range(GATEWAY_WORKER_THREADS):
             thread = threading.Thread(target=self.message_worker_loop, name=f"discord-gateway-worker-{index + 1}")
             thread.start()
             self.worker_threads.append(thread)
+        if GATEWAY_WORKER_THREADS > 0:
+            self.buffered_replay_thread = threading.Thread(
+                target=self.buffered_delivery_replay_loop,
+                name="discord-gateway-buffered-replay",
+                daemon=True,
+            )
+            self.buffered_replay_thread.start()
 
     def set_current_ws(self, ws: GatewayWebSocket | None) -> None:
         with self._current_ws_lock:
@@ -1838,6 +2045,8 @@ class GatewayWorker:
         self.message_queue.join()
         for thread in self.worker_threads:
             thread.join()
+        if self.buffered_replay_thread is not None:
+            self.buffered_replay_thread.join(timeout=1.0)
         self.runtime_state.patch(state="stopped", connected=False, message_queue_size=self.message_queue.qsize())
 
     def current_bot_user_id(
@@ -1913,6 +2122,31 @@ class GatewayWorker:
             finally:
                 self.message_queue.task_done()
                 self.runtime_state.patch(message_queue_size=self.message_queue.qsize())
+
+    def buffered_delivery_replay_loop(self) -> None:
+        if self.stop_event.wait(BUFFERED_DELIVERY_REPLAY_START_DELAY_SECONDS):
+            return
+        while not self.stop_event.is_set():
+            try:
+                stats = replay_buffered_ingress_deliveries()
+                if stats["attempted"] or stats["skipped"]:
+                    self.runtime_state.patch(
+                        last_buffered_replay_at=common.utcnow(),
+                        buffered_replay_attempted=stats["attempted"],
+                        buffered_replay_delivered=stats["delivered"],
+                        buffered_replay_failed=stats["failed"],
+                        buffered_replay_skipped=stats["skipped"],
+                    )
+            except Exception as exc:  # noqa: BLE001
+                message = f"buffered ingress replay loop failed: {exc}"
+                print(f"[{common.current_service_name() or 'discord-gateway'}] {message}", file=sys.stderr, flush=True)
+                self.runtime_state.patch(
+                    last_buffered_replay_error=str(exc),
+                    last_buffered_replay_exception=traceback.format_exc(limit=20),
+                    last_buffered_replay_at=common.utcnow(),
+                )
+            if self.stop_event.wait(BUFFERED_DELIVERY_REPLAY_INTERVAL_SECONDS):
+                return
 
     def _record_extmsg_inbound(self, message: dict[str, Any], bot_user_id: str) -> bool:
         """Normalize and post inbound Discord message to extmsg fabric.
