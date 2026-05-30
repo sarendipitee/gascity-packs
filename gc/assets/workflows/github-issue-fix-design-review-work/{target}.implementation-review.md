@@ -1,5 +1,5 @@
 
-Read workflow root metadata, the current `gc.github.design_path`,
+Read workflow root metadata, the current `gc.github.implementation_plan_path`,
 requirements, triage report, and relevant code. Derive the current attempt from
 this bead metadata (`gc.attempt`) and write artifacts under
 `<gc.github.design_review_dir>/attempt-<attempt>/`.
@@ -9,7 +9,7 @@ Review only implementation realism:
 - Does the proposed change touch the right modules?
 - Are APIs, state, and side effects clear enough for build agents?
 - Are hidden compatibility or layering issues missing?
-- Is the design smaller than necessary or broader than approved requirements?
+- Is the plan smaller than necessary or broader than approved requirements?
 
 Write `implementation-review.md` with:
 - `## Verdict` containing `approve` or `iterate`

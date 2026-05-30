@@ -18,9 +18,9 @@ plan_slug: demo
 phase: tasks
 rig: backend
 rig_root: /repo
-artifact_root: /repo/.gc/plans
-requirements_file: /repo/.gc/plans/demo/requirements.md
-design_file: /repo/.gc/plans/demo/design.md
+artifact_root: /repo/plans
+requirements_file: /repo/plans/demo/requirements.md
+implementation_plan_file: /repo/plans/demo/implementation-plan.md
 status: approved
 created_at: 2026-05-10T00:00:00Z
 updated_at: 2026-05-10T00:00:00Z
@@ -81,6 +81,14 @@ convoys:
 
 
 class CreateBeadsFromTasksTests(unittest.TestCase):
+    def test_sample_tasks_use_implementation_plan_front_matter(self) -> None:
+        text = sample_tasks()
+
+        self.assertIn("implementation_plan_file:", text)
+        self.assertIn("implementation-plan.md", text)
+        self.assertNotIn("design_file:", text)
+        self.assertNotIn("design.md", text)
+
     def test_parse_plan_validates_convoys_and_orders_runnables(self) -> None:
         plan = script.parse_plan(script.extract_payload(sample_tasks()))
 

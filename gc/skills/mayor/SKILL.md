@@ -1,6 +1,6 @@
 ---
 name: mayor
-description: Coordinate planning, design, decomposition, and formula workflow launches for a Gas City rig. Use this whenever the user references the Mayor by name or handle, including Mayor, mayor, $mayor, /mayor, @mayor, or asks the Mayor to plan, design, decompose, schedule, start, or run a workflow.
+description: Coordinate requirements, implementation plans, bead creation, and formula workflow launches for a Gas City rig. Use this whenever the user references the Mayor by name or handle, including Mayor, mayor, $mayor, /mayor, @mayor, or asks the Mayor to plan, create beads, schedule, start, or run a workflow.
 ---
 
 # GC Mayor
@@ -16,14 +16,16 @@ the user explicitly asks to run an implementation workflow through a formula.
 ## Operating Model
 
 1. Determine the target rig/root path, plan slug, and artifact root. Default to
-   `<rig-root>/.gc/plans/<plan-slug>/`.
+   `<rig-root>/plans/<plan-slug>/`, unless the artifact helper selects
+   `<rig-root>/gc-plans/<plan-slug>/` because `plans/` appears foreign.
 2. Inspect the target repo before asking questions whose answers are
    discoverable from files, commands, tests, or config.
 3. Interview one material question at a time and include your recommended
    answer with each question.
 4. Separate artifact approval gates from workflow execution. Do not mark
-   requirements, designs, or task plans approved without explicit user approval
-   unless the user has asked for an autonomous workflow that owns those gates.
+   requirements, implementation plans, or task plans approved without explicit
+   user approval unless the user has asked for an autonomous workflow that owns
+   those gates.
 5. Keep all generated artifact paths and bead IDs concrete enough for later
    formula runs.
 
@@ -40,7 +42,7 @@ plan_slug: example-slug
 phase: requirements
 rig: backend
 rig_root: /absolute/path/to/rig
-artifact_root: /absolute/path/to/rig/.gc/plans
+artifact_root: /absolute/path/to/rig/plans
 status: draft
 created_at: 2026-05-10T00:00:00Z
 updated_at: 2026-05-10T00:00:00Z
@@ -67,21 +69,22 @@ Each user story should include lightweight acceptance criteria, usually 2-5
 bullets. Capture constraints discovered from the repo. Do not preselect bead
 IDs or formula targets in requirements.
 
-## Design
+## Implementation Plan
 
-Use design after requirements are approved, or when the user explicitly asks to
-skip that gate. Inspect the codebase before writing. Ground the design in
-current files, modules, APIs, commands, tests, config, and constraints.
+Use an implementation plan after requirements are approved, or when the user
+explicitly asks to skip that gate. Inspect the codebase before writing. Ground
+the plan in current files, modules, APIs, commands, tests, config, and
+constraints.
 
-`design.md` starts with:
+`implementation-plan.md` starts with:
 
 ```yaml
 ---
 plan_slug: example-slug
-phase: design
+phase: implementation-plan
 rig: backend
 rig_root: /absolute/path/to/rig
-artifact_root: /absolute/path/to/rig/.gc/plans
+artifact_root: /absolute/path/to/rig/plans
 requirements_file: /absolute/path/to/requirements.md
 status: draft
 created_at: 2026-05-10T00:00:00Z
@@ -92,13 +95,13 @@ updated_at: 2026-05-10T00:00:00Z
 Use this body:
 
 ```markdown
-# Design: <title>
+# Implementation Plan: <title>
 
 ## Summary
 
 ## Current System
 
-## Proposed Design
+## Proposed Implementation
 
 ## Testing
 
@@ -107,16 +110,16 @@ Use this body:
 ## Open Questions
 ```
 
-The design should be concrete enough for decomposition: name files/modules,
-interfaces, data flow, persistence, error handling, migration concerns, and
-verification strategy where relevant. When work should be implemented as a
-group, describe the grouping as a convoy boundary.
+The implementation plan should be concrete enough for bead creation: name
+files/modules, interfaces, data flow, persistence, error handling, migration
+concerns, and verification strategy where relevant. When work should be
+implemented as a group, describe the grouping as a convoy boundary.
 
-## Decomposition
+## Create Beads
 
-Use decomposition after requirements and design are approved, or when the user
-explicitly asks to override that gate. Decomposition may create convoys and
-runnable beads; it must not implement those beads.
+Use create-beads after requirements and the implementation plan are approved,
+or when the user explicitly asks to override that gate. This action may create
+convoys and runnable beads; it must not implement those beads.
 
 Write or revise `tasks.md` with a human-readable task plan and a
 machine-readable YAML payload under `## Bead Creation Payload`. After approval,
@@ -141,9 +144,9 @@ plan_slug: example-slug
 phase: tasks
 rig: backend
 rig_root: /absolute/path/to/rig
-artifact_root: /absolute/path/to/rig/.gc/plans
+artifact_root: /absolute/path/to/rig/plans
 requirements_file: /absolute/path/to/requirements.md
-design_file: /absolute/path/to/design.md
+implementation_plan_file: /absolute/path/to/implementation-plan.md
 status: draft
 created_at: 2026-05-10T00:00:00Z
 updated_at: 2026-05-10T00:00:00Z

@@ -36,7 +36,40 @@ class ArtifactHelperTests(unittest.TestCase):
             os.environ["GC_RIG_ROOT"] = temp_dir
             self.assertEqual(
                 module.resolve_artifact_root(""),
-                pathlib.Path(temp_dir).resolve() / ".gc" / "plans",
+                pathlib.Path(temp_dir).resolve() / "plans",
+            )
+
+    def test_explicit_override_wins_over_default_root(self) -> None:
+        module = load_artifacts_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            override = pathlib.Path(temp_dir) / "custom" / "artifact-root"
+
+            self.assertEqual(module.resolve_artifact_root(str(override)), override.resolve())
+
+    def test_foreign_plans_directory_falls_back_to_gc_plans(self) -> None:
+        module = load_artifacts_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rig_root = pathlib.Path(temp_dir)
+            plans = rig_root / "plans"
+            plans.mkdir()
+            (plans / "team-roadmap.md").write_text("# Roadmap\n", encoding="utf-8")
+
+            self.assertEqual(
+                module.resolve_artifact_root("", rig_root=str(rig_root)),
+                rig_root.resolve() / "gc-plans",
+            )
+
+    def test_gc_owned_plans_directory_is_stable_across_runs(self) -> None:
+        module = load_artifacts_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rig_root = pathlib.Path(temp_dir)
+            plans = rig_root / "plans"
+            plans.mkdir()
+            (plans / ".gc-plans").write_text("", encoding="utf-8")
+
+            self.assertEqual(
+                module.resolve_artifact_root("", rig_root=str(rig_root)),
+                plans.resolve(),
             )
 
     def test_leading_slash_paths_are_artifact_root_relative(self) -> None:

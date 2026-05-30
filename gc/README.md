@@ -4,7 +4,7 @@ This pack provides a convoy-first planning and implementation workflow for Gas
 City work:
 
 - `gc.mayor` is the user-facing coordinator skill. It gathers requirements,
-  writes designs, decomposes approved plans into convoys/beads, and discovers
+  writes implementation plans, creates approved beads/convoys, and discovers
   runnable workflow formulas.
 - Formula workflows opt into discovery with `[catalog]` metadata. The mayor
   discovers them with `gc formula catalog --json`, inspects them with
@@ -208,26 +208,27 @@ metadata = { "gc.run_target" = "gc.requirements-planner" }
 ```
 
 The replacement should still write the requirements artifact path back to the
-workflow root metadata key expected by later design and decompose steps. It may
-add policy review, customer-impact review, or approval lanes before closing.
+workflow root metadata key expected by later implementation-plan and
+create-beads steps. It may add policy review, customer-impact review, or
+approval lanes before closing.
 
-### Design Authoring
+### Implementation Plan
 
-Use this when design documents need local architecture constraints, migration
-rules, rollout notes, or repository-specific boundaries.
+Use this when implementation plans need local architecture constraints,
+migration rules, rollout notes, or repository-specific boundaries.
 
 Stable basic override:
-`assets/workflows/github-issue-fix-base/design.md`
+`assets/workflows/github-issue-fix-base/implementation-plan.md`
 
 Stable advanced step:
-`github-issue-fix-base` step `design`
+`github-issue-fix-base` step `implementation-plan`
 
 Basic example: enforce architecture docs for API changes.
 
-Create `assets/workflows/github-issue-fix-base/design.md`:
+Create `assets/workflows/github-issue-fix-base/implementation-plan.md`:
 
 ```markdown
-Before writing or updating `design.md`, classify the affected area.
+Before writing or updating `implementation-plan.md`, classify the affected area.
 
 - For `internal/api/`, CLI API-client code, SSE events, generated OpenAPI, or
   dashboard generated types, read `engdocs/architecture/api-control-plane.md`
@@ -236,33 +237,34 @@ Before writing or updating `design.md`, classify the affected area.
   changes and generated-code impact.
 - Include a "Migration and Rollback" section for persisted metadata,
   database-like state, or external GitHub comments.
-- If the design adds framework logic that could belong in prompt/config, call
+- If the plan adds framework logic that could belong in prompt/config, call
   that out and choose the prompt/config path unless there is a clear SDK
   primitive requirement.
 ```
 
-Advanced example: replace single-author design with architecture and test-risk
-lanes.
+Advanced example: replace the single-author implementation plan with
+architecture and test-risk lanes.
 
-Copy `github-issue-fix-base.formula.toml` and replace `design`:
+Copy `github-issue-fix-base.formula.toml` and replace `implementation-plan`:
 
 ```toml
 [[steps]]
-id = "design"
-title = "Write design through architecture quorum"
+id = "implementation-plan"
+title = "Write implementation plan through architecture quorum"
 needs = ["generate-requirements"]
 expand = "company-architecture-design-quorum"
 metadata = { "gc.run_target" = "gc.design-author" }
 ```
 
 The expansion can fan out to architecture, operations, and test-risk authors,
-then synthesize one `design.md`. The sink must still publish the design path in
-the same workflow-root metadata used by `design-review` and `decompose`.
+then synthesize one `implementation-plan.md`. The sink must still publish the
+implementation-plan path in the same workflow-root metadata used by
+`design-review` and `create-beads`.
 
 ### Design Review
 
-Use this when designs need stricter approval rules or a broader review group
-before task decomposition begins.
+Use this when implementation plans need stricter approval rules or a broader
+review group before bead creation begins.
 
 Stable basic override:
 `assets/workflows/design-review/design-review.md`
@@ -276,15 +278,15 @@ Basic example: require security and operability review notes.
 Create `assets/workflows/design-review/design-review.md`:
 
 ```markdown
-Review the design with local release-readiness expectations.
+Review the implementation plan with local release-readiness expectations.
 
 - Security-sensitive input, auth, GitHub token use, filesystem writes, and shell
   execution require explicit threat notes.
 - Operational changes need rollback, observability, and failure-mode notes.
-- Designs that affect persisted bead metadata must identify the metadata keys,
+- Implementation plans that affect persisted bead metadata must identify the metadata keys,
   migration behavior, and how old runs remain readable.
-- Approve only when required changes are applied to the design, not deferred to
-  implementation.
+- Approve only when required changes are applied to the implementation plan, not
+  deferred to implementation.
 ```
 
 Advanced example: replace the design review step with an N-wide review loop.
@@ -294,56 +296,57 @@ Copy `design-review.formula.toml` and replace `design-review`:
 ```toml
 [[steps]]
 id = "design-review"
-title = "Run architecture, security, and test design quorum"
+title = "Run architecture, security, and test plan quorum"
 expand = "company-design-review-n-wide"
 metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.run_target" = "gc.review-synthesizer" }
 ```
 
 The replacement may create separate review artifacts, but `finalize` should
-still be able to determine whether the design is approved or blocked and write
-the terminal notification expected by the base workflow.
+still be able to determine whether the implementation plan is approved or
+blocked and write the terminal notification expected by the base workflow.
 
-### Decomposition
+### Create Beads
 
 Use this when task breakdown needs local slicing rules, dependency conventions,
 or bead/convoy naming standards.
 
 Stable basic override:
-`assets/workflows/github-issue-fix-base/decompose.md`
+`assets/workflows/github-issue-fix-base/create-beads.md`
 
 Stable advanced step:
-`github-issue-fix-base` step `decompose`
+`github-issue-fix-base` step `create-beads`
 
 Basic example: enforce vertical slices and dependency hygiene.
 
-Create `assets/workflows/github-issue-fix-base/decompose.md`:
+Create `assets/workflows/github-issue-fix-base/create-beads.md`:
 
 ```markdown
-Decompose the approved design into runnable implementation work.
+Create runnable implementation beads from the approved implementation plan.
 
 - Prefer vertical slices that each produce a testable behavior change.
-- Do not create "refactor first" tasks unless the design explicitly requires the
-  refactor as a prerequisite for user-visible behavior.
+- Do not create "refactor first" tasks unless the implementation plan
+  explicitly requires the refactor as a prerequisite for user-visible behavior.
 - Every task must identify expected files or modules, acceptance checks, and
   dependencies on earlier tasks.
 - Use nested `convoys[]` and `beads[]` in `tasks.md`; never use `epics[]`.
 ```
 
-Advanced example: replace decomposition with quality-gated task generation.
+Advanced example: replace bead creation with quality-gated task generation.
 
-Copy `github-issue-fix-base.formula.toml` and replace `decompose`:
+Copy `github-issue-fix-base.formula.toml` and replace `create-beads`:
 
 ```toml
 [[steps]]
-id = "decompose"
+id = "create-beads"
 title = "Create quality-gated implementation convoy"
 needs = ["design-review"]
-expand = "company-decompose-with-architect-review"
+expand = "company-create-beads-with-architect-review"
 metadata = { "gc.run_target" = "gc.task-decomposer" }
 ```
 
-The expansion can draft tasks, run a decomposition quality gate, and revise
-until approved. It must still produce the `tasks.md` shape consumed by
+The expansion can draft tasks, run a bead-creation quality gate, revise until
+approved, create the task beads and convoy, and record the created mapping. It
+must still produce the `tasks.md` shape consumed by
 `assets/scripts/create_beads_from_tasks.py` and record the created convoy
 metadata expected by downstream build dispatch.
 
@@ -671,16 +674,18 @@ status for the caller.
 By default artifacts go under the target rig:
 
 ```text
-<rig-root>/.gc/plans/<plan-slug>/
+<rig-root>/plans/<plan-slug>/
   requirements.md
-  design.md
+  implementation-plan.md
   tasks.md
   context.yaml
   build/final-report.md
 ```
 
 The mayor may use a different artifact root when the user explicitly asks for
-one. The same `<plan-slug>/` structure should be used under the override root.
+one. If the default `plans/` directory already exists and appears unrelated to
+GC planning artifacts, the helper falls back to `<rig-root>/gc-plans`. The same
+`<plan-slug>/` structure should be used under the override root.
 
 The mayor uses `assets/scripts/create_beads_from_tasks.py` after approving a
 task plan. The script requires Python 3 with PyYAML available, invokes `gc bd --rig

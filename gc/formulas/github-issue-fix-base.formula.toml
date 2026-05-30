@@ -84,16 +84,16 @@ metadata = { "gc.run_target" = "gc.requirements-planner" }
 description_file = "../assets/workflows/github-issue-fix-base/generate-requirements.md"
 
 [[steps]]
-id = "design"
-title = "Generate or gate design"
+id = "implementation-plan"
+title = "Generate or gate implementation plan"
 needs = ["generate-requirements"]
 metadata = { "gc.run_target" = "gc.design-author" }
-description_file = "../assets/workflows/github-issue-fix-base/design.md"
+description_file = "../assets/workflows/github-issue-fix-base/implementation-plan.md"
 
 [[steps]]
 id = "design-review"
-title = "Review approved design"
-needs = ["design"]
+title = "Review approved implementation plan"
+needs = ["implementation-plan"]
 metadata = { "gc.run_target" = "gc.review-synthesizer" }
 expand = "github-issue-fix-design-review-work"
 description_file = "../assets/workflows/github-issue-fix-base/design-review.md"
@@ -102,16 +102,16 @@ description_file = "../assets/workflows/github-issue-fix-base/design-review.md"
 mode = "{{mode}}"
 
 [[steps]]
-id = "decompose"
-title = "Generate or gate task convoy"
+id = "create-beads"
+title = "Create or gate implementation beads"
 needs = ["design-review"]
 metadata = { "gc.run_target" = "gc.task-decomposer" }
-description_file = "../assets/workflows/github-issue-fix-base/decompose.md"
+description_file = "../assets/workflows/github-issue-fix-base/create-beads.md"
 
 [[steps]]
 id = "build"
 title = "Run build quality loop"
-needs = ["decompose"]
+needs = ["create-beads"]
 metadata = { "gc.run_target" = "gc.implementation-worker" }
 description_file = "../assets/workflows/github-issue-fix-base/build.md"
 

@@ -1,11 +1,11 @@
 description = """
-Default GitHub issue-fix design-review expansion.
+Default GitHub issue-fix implementation-plan review expansion.
 
 This is the pack-owned training-wheels review path for an already-created
-`design.md`. It runs two focused review lanes and a small synthesize/apply loop
-until the design is approved. It deliberately avoids full personas or a large
+`implementation-plan.md`. It runs two focused review lanes and a small synthesize/apply loop
+until the implementation plan is approved. It deliberately avoids full personas or a large
 issue-fix graph while preserving the `github-issue-fix.design-review` sink
-contract for downstream decomposition.
+contract for downstream bead creation.
 """
 formula = "github-issue-fix-design-review-work"
 type = "expansion"
@@ -18,13 +18,13 @@ default = "interactive"
 
 [[template]]
 id = "{target}.setup-design-review"
-title = "Prepare issue-fix design review"
+title = "Prepare issue-fix implementation-plan review"
 metadata = { "gc.run_target" = "gc.run-operator" }
 description_file = "../assets/workflows/github-issue-fix-design-review-work/{target}.setup-design-review.md"
 
 [[template]]
 id = "{target}.review-loop"
-title = "Review and refine design until approved"
+title = "Review and refine implementation plan until approved"
 needs = ["{target}.setup-design-review"]
 description_file = "../assets/workflows/github-issue-fix-design-review-work/{target}.review-loop.md"
 metadata = { "gc.run_target" = "gc.run-operator" }
@@ -39,19 +39,19 @@ timeout = "10m"
 
 [[template.children]]
 id = "{target}.implementation-review"
-title = "Review design: implementation realism"
+title = "Review implementation plan: implementation realism"
 description_file = "../assets/workflows/github-issue-fix-design-review-work/{target}.implementation-review.md"
 metadata = { "gc.run_target" = "gc.design-implementation-reviewer" }
 
 [[template.children]]
 id = "{target}.testing-risk-review"
-title = "Review design: tests and risk"
+title = "Review implementation plan: tests and risk"
 description_file = "../assets/workflows/github-issue-fix-design-review-work/{target}.testing-risk-review.md"
 metadata = { "gc.run_target" = "gc.design-test-risk-reviewer" }
 
 [[template.children]]
 id = "{target}.synthesize-review"
-title = "Synthesize design reviews"
+title = "Synthesize implementation-plan reviews"
 needs = ["{target}.implementation-review", "{target}.testing-risk-review"]
 description_file = "../assets/workflows/github-issue-fix-design-review-work/{target}.synthesize-review.md"
 metadata = { "gc.run_target" = "gc.review-synthesizer" }
@@ -65,7 +65,7 @@ metadata = { "gc.run_target" = "gc.review-synthesizer", "gc.continuation_group" 
 
 [[template]]
 id = "{target}"
-title = "Finalize approved issue-fix design review"
+title = "Finalize approved issue-fix implementation-plan review"
 needs = ["{target}.review-loop"]
 metadata = { "gc.run_target" = "gc.run-operator" }
 description_file = "../assets/workflows/github-issue-fix-design-review-work/{target}.md"

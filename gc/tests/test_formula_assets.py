@@ -372,9 +372,9 @@ class FormulaAssetTests(unittest.TestCase):
         self.assertEqual(route_by_step["resume-or-create-run"], "gc.run-operator")
         self.assertEqual(route_by_step["update-status-started"], "gc.run-operator")
         self.assertEqual(route_by_step["generate-requirements"], "gc.requirements-planner")
-        self.assertEqual(route_by_step["design"], "gc.design-author")
+        self.assertEqual(route_by_step["implementation-plan"], "gc.design-author")
         self.assertEqual(route_by_step["design-review"], "gc.review-synthesizer")
-        self.assertEqual(route_by_step["decompose"], "gc.task-decomposer")
+        self.assertEqual(route_by_step["create-beads"], "gc.task-decomposer")
         self.assertEqual(route_by_step["build"], "gc.implementation-worker")
         self.assertEqual(route_by_step["publish-pr"], "gc.publisher")
         self.assertEqual(route_by_step["finalize"], "gc.run-operator")
@@ -473,6 +473,16 @@ class FormulaAssetTests(unittest.TestCase):
                 self.assertIn("artifact-root-relative", text)
                 self.assertIn("not filesystem-root absolute", text)
                 self.assertIn("gc.github.snapshot_path=<absolute source.json path>", text)
+
+    def test_github_issue_fix_uses_implementation_plan_artifact_contract(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        text = effective_formula_text(root, "github-issue-fix")
+
+        self.assertIn("implementation-plan.md", text)
+        self.assertIn("implementation_plan_file", text)
+        self.assertIn("create beads", text.lower())
+        self.assertNotIn("design.md", text)
+        self.assertNotIn("design_file", text)
 
     def test_github_issue_triage_formula_requires_human_readable_analysis(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]

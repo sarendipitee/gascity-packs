@@ -11,6 +11,10 @@ class ArtifactError(Exception):
     pass
 
 
+_GC_PLAN_MARKER = ".gc-plans"
+_GC_PLAN_ARTIFACTS = {"requirements.md", "implementation-plan.md", "tasks.md", "context.yaml"}
+
+
 def resolve_artifact_root(override: str, *, rig_root: str = "") -> Path:
     raw_override = override.strip()
     if raw_override:
@@ -19,7 +23,29 @@ def resolve_artifact_root(override: str, *, rig_root: str = "") -> Path:
     raw_rig_root = rig_root.strip() or first_env("GC_RIG_ROOT", "GC_DIR", "GC_BEADS_SCOPE_ROOT")
     if not raw_rig_root:
         raise ArtifactError("artifact root override is empty and no rig root environment is available")
-    return (Path(raw_rig_root).expanduser().resolve() / ".gc" / "plans").resolve()
+    rig = Path(raw_rig_root).expanduser().resolve()
+    plans = rig / "plans"
+    if plans.exists() and plans.is_dir() and _plans_root_is_foreign(plans):
+        return (rig / "gc-plans").resolve()
+    return plans.resolve()
+
+
+def _plans_root_is_foreign(plans: Path) -> bool:
+    marker = plans / _GC_PLAN_MARKER
+    if marker.exists():
+        return False
+    try:
+        children = list(plans.iterdir())
+    except OSError:
+        return True
+    if not children:
+        return False
+    for child in children:
+        if child.name in _GC_PLAN_ARTIFACTS:
+            return False
+        if child.is_dir() and any((child / artifact).exists() for artifact in _GC_PLAN_ARTIFACTS):
+            return False
+    return True
 
 
 def resolve_artifact_path(override: str, relative: str, *, rig_root: str = "") -> Path:

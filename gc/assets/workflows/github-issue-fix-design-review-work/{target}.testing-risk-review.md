@@ -1,5 +1,5 @@
 
-Read workflow root metadata, the current `gc.github.design_path`,
+Read workflow root metadata, the current `gc.github.implementation_plan_path`,
 requirements, triage report, and relevant tests. Derive the current attempt
 from this bead metadata (`gc.attempt`) and write artifacts under
 `<gc.github.design_review_dir>/attempt-<attempt>/`.
