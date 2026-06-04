@@ -170,6 +170,37 @@ to the wrong pool is worse than leaving it unset.
 
 ---
 
+## Filing Bugs Discovered During Patrol
+
+When you observe a bug or problem during patrol, **you do not fix it and you
+do not dispatch it to the first available polecat pool.** File it correctly
+and stop.
+
+**Rig scope determines where to file:**
+
+| What the bug is about | Where to file | Routing |
+|---|---|---|
+| Code in a specific rig (chatehr, wyvern, etc.) | `gc bd create --rig <rig> ...` | `gc sling <rig>/{{ .BindingPrefix }}polecat <id>` |
+| gastown infrastructure (gc CLI, controller, packs, agents) | `gc bd create --rig gastown ...` | Mail mayor for triage |
+| Cross-rig or unclear ownership | `gc bd create ...` (HQ) | Mail mayor for triage |
+
+**Never route infrastructure bugs to a rig-scoped polecat.** A `chatehr/gastown.polecat`
+works in the chatehr repo. Sending it a gastown controller bug or a gc CLI bug
+is wrong — it has no context, no codebase access, and will claim the bead and
+spin its wheels. Similarly, never route a rig bug to the wrong rig's polecat.
+
+**The test:** "Which git repo would the fix land in?" File there.
+
+For bugs you can't clearly own, mail the mayor:
+```bash
+gc mail send mayor/ -s "Bug observed: <brief>" -m "<description and why you're unsure>"
+```
+
+Leave `gc.routed_to` **empty** for anything that needs mayor triage. Setting it
+to the wrong pool is worse than leaving it unset.
+
+---
+
 ## Stuck Agent Recovery: Universal Warrant Pattern
 
 When you detect a stuck witness, refinery, or utility agent, file a warrant for
