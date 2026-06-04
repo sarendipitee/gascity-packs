@@ -261,6 +261,31 @@ class FormulaAssetTests(unittest.TestCase):
 
         self.assertEqual(catalog_names, CATALOG_FORMULAS)
 
+    def test_targeted_formulas_consume_graphv2_input_convoy(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        targeted_formulas = {
+            "build-run",
+            "design-review",
+            "do-work",
+            "do-work-item",
+            "fix-convoy",
+            "implement",
+            "same-session-implement",
+        }
+
+        for name in sorted(targeted_formulas):
+            with self.subTest(formula=name):
+                data = tomllib.loads((root / "formulas" / f"{name}.formula.toml").read_text(encoding="utf-8"))
+                self.assertTrue(data.get("target_required"), f"{name} should reject targetless launches")
+                self.assertIn("{{convoy_id}}", effective_formula_text(root, name))
+
+    def test_graphv2_formula_text_avoids_legacy_source_workflow_root_key(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+
+        for name in FORMULAS:
+            with self.subTest(formula=name):
+                self.assertNotIn("gc.source_bead_id", effective_formula_text(root, name))
+
     def test_formula_node_descriptions_delegate_to_shadowable_assets(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]
         for formula_path in sorted((root / "formulas").glob("*.formula.toml")):
@@ -283,6 +308,7 @@ class FormulaAssetTests(unittest.TestCase):
         self.assertNotIn("infra_target", data["vars"])
         self.assertNotIn("hard_target", data["vars"])
         self.assertNotIn("worker_target", data["vars"])
+        self.assertEqual(data["sling_container_mode"], "source")
 
         step_ids = [step["id"] for step in data["steps"]]
         self.assertEqual(
@@ -345,6 +371,12 @@ class FormulaAssetTests(unittest.TestCase):
             "Do not edit source files in the launcher checkout",
             "Do not create, modify, or commit source code",
             "Do not run implementation or test-fix loops",
+            "CLAIMED_BEAD_ID",
+            "gc.root_bead_id",
+            "gc.input_convoy_id",
+            "validate that input bead is a convoy",
+            "do not search repo, plan, report, artifact, session-log, or runtime files",
+            "hard-fail if metadata is missing",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, node_description(root, prepare))
@@ -376,6 +408,9 @@ class FormulaAssetTests(unittest.TestCase):
             "gc.input_convoy_id",
             "gc.synthetic_kind",
             "gc.drain_member_id",
+            "do not use the synthetic drain-unit convoy id as `<source-anchor-id>`",
+            "never persist `work_dir` on the synthetic drain-unit convoy",
+            "hard-fail if the selected source anchor id equals the synthetic input convoy id",
             "worktrees/<source-anchor-id>",
             "git worktree add",
             "bd update <source-anchor-id> --set-metadata work_dir=",
@@ -387,6 +422,7 @@ class FormulaAssetTests(unittest.TestCase):
         implement = node_description(root, steps["implement"])
         for fragment in (
             "Read `work_dir` from the source anchor",
+            "never read `work_dir` from the synthetic drain-unit convoy",
             "cd \"$WORKTREE\"",
             "fail this step before editing",
             "Do not edit files in the launcher checkout",
@@ -404,6 +440,7 @@ class FormulaAssetTests(unittest.TestCase):
             "gc.outcome=pass",
             "if either check fails",
             "anchor before closing this step",
+            "Do not close this step with pass while the source anchor remains open",
         ):
             with self.subTest(step="close-source-anchor", fragment=fragment):
                 self.assertIn(fragment, close_source)
@@ -414,6 +451,7 @@ class FormulaAssetTests(unittest.TestCase):
         build_run = tomllib.loads((root / "formulas" / "build-run.formula.toml").read_text(encoding="utf-8"))
         self.assertNotIn("infra_target", build_run["vars"])
         self.assertNotIn("hard_target", build_run["vars"])
+        self.assertEqual(build_run["sling_container_mode"], "source")
         self.assertEqual(build_run["steps"][0]["metadata"]["gc.run_target"], "gc.implementation-worker")
         self.assertEqual(build_run["steps"][1]["metadata"]["gc.run_target"], "gc.gap-analyst")
         self.assertEqual(build_run["steps"][2]["metadata"]["gc.run_target"], "gc.implementation-reviewer")

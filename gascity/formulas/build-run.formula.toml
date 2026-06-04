@@ -3,6 +3,7 @@ Durable back half for the build skill: implement, analyze gaps, review, fix,
 and optionally publish.
 
 Launch inputs:
+- input_convoy: {{convoy_id}}
 - artifact_root: {{artifact_root}}
 - context_path: {{context_path}} (empty means no extra implementation context)
 - drain_policy: {{drain_policy}}
@@ -17,6 +18,7 @@ version = 1
 contract = "graph.v2"
 target_required = true
 internal = true
+sling_container_mode = "source"
 
 [catalog]
 name = "build-run"
