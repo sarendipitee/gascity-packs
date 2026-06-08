@@ -80,6 +80,25 @@ Default formula routes use these qualified targets: `gc.run-operator`,
 `gc.implementation-worker`, `gc.gap-analyst`, `gc.implementation-reviewer`,
 and `gc.publisher`.
 
+## Build Methodology Contract
+
+`build-base` is the virtual full-lifecycle workflow contract. It defines the
+stable stage sequence that concrete build methodology packs can override:
+
+```text
+prepare -> requirements -> plan -> plan-review -> decompose -> implement ->
+review -> finalize -> publish
+```
+
+`build-base` is internal and should not be launched directly. Use
+`build-basic` for the default Gas City implementation. It maps the base stages
+onto the existing Gas City requirements, implementation-plan, design-review,
+create-beads, build-run, review, and publish helpers.
+
+Third-party methodology packs can extend `build-base` and override only the
+stages they need. The repository currently ships concrete vendored
+implementations for Compound Engineering, Superpowers, and BMAD Method.
+
 ## Stable Workflow Override Interface
 
 This section is the external compatibility promise for this pack's workflow

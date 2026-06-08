@@ -8,6 +8,8 @@ import unittest
 
 
 FORMULAS = {
+    "build-base",
+    "build-basic",
     "build-run",
     "design-review",
     "do-work",
@@ -42,6 +44,7 @@ ROLE_AGENTS = {
 }
 
 CATALOG_FORMULAS = {
+    "build-basic",
     "build-run",
     "design-review",
     "gap-analysis",
@@ -50,6 +53,61 @@ CATALOG_FORMULAS = {
     "github-pr-review",
     "implement",
     "review",
+}
+
+BUILD_BASE_STEPS = [
+    "prepare",
+    "requirements",
+    "plan",
+    "plan-review",
+    "decompose",
+    "implement",
+    "review",
+    "finalize",
+    "publish",
+]
+
+THIRD_PARTY_BUILD_PACKS = {
+    "compound-engineering": {
+        "formula": "compound-build",
+        "vendor": "compound-engineering-plugin",
+        "upstream": "https://github.com/EveryInc/compound-engineering-plugin",
+        "commit": "b6250490bec4c0488d68ad66d72bd99f6edb95fd",
+        "skills": {
+            "requirements": "ce-brainstorm",
+            "plan": "ce-plan",
+            "implement": "ce-work",
+            "review": "ce-code-review",
+            "finalize": "ce-compound",
+        },
+    },
+    "superpowers": {
+        "formula": "superpowers-build",
+        "vendor": "superpowers",
+        "upstream": "https://github.com/obra/superpowers",
+        "commit": "6fd4507659784c351abbd2bc264c7162cfd386dc",
+        "skills": {
+            "requirements": "brainstorming",
+            "plan": "writing-plans",
+            "implement": "executing-plans",
+            "review": "requesting-code-review",
+            "finalize": "finishing-a-development-branch",
+        },
+    },
+    "bmad": {
+        "formula": "bmad-build",
+        "vendor": "bmad-method",
+        "upstream": "https://github.com/bmad-code-org/BMAD-METHOD",
+        "commit": "072d0a74587ef1ea744d51f2dd4436ee2895758d",
+        "skills": {
+            "requirements": "bmad-prd",
+            "plan": "bmad-create-architecture",
+            "plan-review": "bmad-check-implementation-readiness",
+            "decompose": "bmad-create-epics-and-stories",
+            "implement": "bmad-quick-dev",
+            "review": "bmad-code-review",
+        },
+    },
 }
 
 
@@ -150,6 +208,29 @@ def effective_formula_text(root: pathlib.Path, name: str) -> str:
     for parent in data.get("extends", []):
         chunks.append(effective_formula_text(root, parent))
     formula_path = root / "formulas" / f"{name}.formula.toml"
+    chunks.append(formula_path.read_text(encoding="utf-8"))
+    for node in formula_nodes(data):
+        description_file = node.get("description_file")
+        if description_file:
+            chunks.append((formula_path.parent / description_file).resolve().read_text(encoding="utf-8"))
+    return "\n".join(chunks)
+
+
+def effective_formula_text_from_dirs(formula_dirs: list[pathlib.Path], name: str) -> str:
+    data = load_formula_from_dirs(formula_dirs, name)
+    chunks = []
+    for parent in data.get("extends", []):
+        chunks.append(effective_formula_text_from_dirs(formula_dirs, parent))
+
+    formula_path = None
+    for formula_dir in reversed(formula_dirs):
+        candidate = formula_dir / f"{name}.formula.toml"
+        if candidate.exists():
+            formula_path = candidate
+            break
+    if formula_path is None:
+        raise AssertionError(f"formula {name!r} not found in layered dirs")
+
     chunks.append(formula_path.read_text(encoding="utf-8"))
     for node in formula_nodes(data):
         description_file = node.get("description_file")
@@ -260,6 +341,92 @@ class FormulaAssetTests(unittest.TestCase):
             catalog_names.add(name)
 
         self.assertEqual(catalog_names, CATALOG_FORMULAS)
+
+    def test_build_base_is_full_lifecycle_virtual_contract(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        data = load_formula(root, "build-base")
+
+        self.assertTrue(data["internal"])
+        self.assertTrue(data["target_required"])
+        self.assertNotIn("catalog", data)
+        self.assertEqual([step["id"] for step in data["steps"]], BUILD_BASE_STEPS)
+        self.assertNotIn("compound", BUILD_BASE_STEPS)
+
+        route_by_step = {step["id"]: step["metadata"]["gc.run_target"] for step in data["steps"]}
+        self.assertEqual(route_by_step["prepare"], "gc.run-operator")
+        self.assertEqual(route_by_step["requirements"], "gc.requirements-planner")
+        self.assertEqual(route_by_step["plan"], "gc.design-author")
+        self.assertEqual(route_by_step["plan-review"], "gc.review-synthesizer")
+        self.assertEqual(route_by_step["decompose"], "gc.task-decomposer")
+        self.assertEqual(route_by_step["implement"], "gc.implementation-worker")
+        self.assertEqual(route_by_step["review"], "gc.implementation-reviewer")
+        self.assertEqual(route_by_step["finalize"], "gc.run-operator")
+        self.assertEqual(route_by_step["publish"], "gc.publisher")
+
+        for step in data["steps"]:
+            description = node_description(root, step)
+            with self.subTest(step=step["id"]):
+                self.assertIn("override", description.lower())
+                self.assertIn("build-base", description)
+
+    def test_build_basic_extends_full_lifecycle_base(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        data = load_formula(root, "build-basic")
+        resolved = resolve_formula(root, "build-basic")
+
+        self.assertEqual(data["extends"], ["build-base"])
+        self.assertEqual([step["id"] for step in resolved["steps"]], BUILD_BASE_STEPS)
+        self.assertEqual(data["catalog"]["name"], "build-basic")
+        text = effective_formula_text(root, "build-basic")
+        for fragment in (
+            "generate-requirements",
+            "implementation-plan",
+            "design-review",
+            "create-beads",
+            "build-run",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, text)
+        self.assertNotIn('id = "compound"', text)
+
+    def test_third_party_build_packs_extend_base_and_vendor_sources(self) -> None:
+        gascity_root = pathlib.Path(__file__).resolve().parents[1]
+        packs_root = gascity_root.parent
+        for pack_name, expected in THIRD_PARTY_BUILD_PACKS.items():
+            with self.subTest(pack=pack_name):
+                pack_root = packs_root / pack_name
+                formula_name = expected["formula"]
+                data = load_formula(pack_root, formula_name)
+                resolved = resolve_formula_from_dirs(
+                    [gascity_root / "formulas", pack_root / "formulas"],
+                    formula_name,
+                )
+
+                self.assertEqual(data["extends"], ["build-base"])
+                self.assertEqual(data["formula"], formula_name)
+                self.assertEqual(data["catalog"]["name"], formula_name)
+                self.assertEqual([step["id"] for step in resolved["steps"]], BUILD_BASE_STEPS)
+                self.assertNotIn("compound", [step["id"] for step in resolved["steps"]])
+
+                pack_data = tomllib.loads((pack_root / "pack.toml").read_text(encoding="utf-8"))
+                self.assertEqual(pack_data["pack"]["name"], pack_name)
+
+                vendor_root = pack_root / "vendor" / expected["vendor"]
+                self.assertTrue((vendor_root / "LICENSE").is_file())
+                upstream = tomllib.loads((vendor_root / "upstream.toml").read_text(encoding="utf-8"))["upstream"]
+                self.assertEqual(upstream["source"], expected["upstream"])
+                self.assertEqual(upstream["commit"], expected["commit"])
+                self.assertEqual(upstream["license"], "MIT")
+
+                formula_text = effective_formula_text_from_dirs(
+                    [gascity_root / "formulas", pack_root / "formulas"],
+                    formula_name,
+                )
+                self.assertIn(f"vendor/{expected['vendor']}", formula_text)
+                for step_id, skill_name in expected["skills"].items():
+                    self.assertTrue((vendor_root / "skills" / skill_name / "SKILL.md").is_file())
+                    self.assertIn(skill_name, formula_text)
+                    self.assertIn(f"assets/workflows/{formula_name}/{step_id}.md", formula_text)
 
     def test_formula_node_descriptions_delegate_to_shadowable_assets(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]

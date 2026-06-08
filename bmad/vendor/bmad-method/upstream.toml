@@ -1,0 +1,16 @@
+[upstream]
+name = "BMAD Method"
+source = "https://github.com/bmad-code-org/BMAD-METHOD"
+commit = "072d0a74587ef1ea744d51f2dd4436ee2895758d"
+license = "MIT"
+vendored_paths = [
+  "src/core-skills/bmad-brainstorming",
+  "src/core-skills/bmad-spec",
+  "src/bmm-skills/2-plan-workflows/bmad-prd",
+  "src/bmm-skills/3-solutioning/bmad-create-architecture",
+  "src/bmm-skills/3-solutioning/bmad-check-implementation-readiness",
+  "src/bmm-skills/3-solutioning/bmad-create-epics-and-stories",
+  "src/bmm-skills/4-implementation/bmad-quick-dev",
+  "src/bmm-skills/4-implementation/bmad-dev-story",
+  "src/bmm-skills/4-implementation/bmad-code-review",
+]

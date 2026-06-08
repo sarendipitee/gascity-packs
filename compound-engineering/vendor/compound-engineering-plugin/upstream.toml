@@ -1,0 +1,12 @@
+[upstream]
+name = "Compound Engineering Plugin"
+source = "https://github.com/EveryInc/compound-engineering-plugin"
+commit = "b6250490bec4c0488d68ad66d72bd99f6edb95fd"
+license = "MIT"
+vendored_paths = [
+  "plugins/compound-engineering/skills/ce-brainstorm",
+  "plugins/compound-engineering/skills/ce-plan",
+  "plugins/compound-engineering/skills/ce-work",
+  "plugins/compound-engineering/skills/ce-code-review",
+  "plugins/compound-engineering/skills/ce-compound",
+]

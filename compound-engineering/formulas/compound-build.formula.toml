@@ -1,0 +1,51 @@
+description = """
+Compound Engineering implementation of the Gas City build-base contract.
+
+This formula vendors the relevant Compound Engineering skills and maps them
+onto build-base stages. There is no separate compound stage; compound resolution
+is a finalize-stage behavior.
+"""
+formula = "compound-build"
+version = 1
+contract = "graph.v2"
+extends = ["build-base"]
+target_required = true
+
+[catalog]
+name = "compound-build"
+description = "Run build-base with vendored Compound Engineering brainstorm, plan, work, review, and compound finalization skills."
+
+[[steps]]
+id = "requirements"
+title = "Compound brainstorm requirements"
+needs = ["prepare"]
+metadata = { "gc.run_target" = "gc.requirements-planner" }
+description_file = "../assets/workflows/compound-build/requirements.md"
+
+[[steps]]
+id = "plan"
+title = "Compound plan"
+needs = ["requirements"]
+metadata = { "gc.run_target" = "gc.design-author" }
+description_file = "../assets/workflows/compound-build/plan.md"
+
+[[steps]]
+id = "implement"
+title = "Compound work"
+needs = ["decompose"]
+metadata = { "gc.run_target" = "gc.implementation-worker" }
+description_file = "../assets/workflows/compound-build/implement.md"
+
+[[steps]]
+id = "review"
+title = "Compound code review"
+needs = ["implement"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer" }
+description_file = "../assets/workflows/compound-build/review.md"
+
+[[steps]]
+id = "finalize"
+title = "Compound finalization"
+needs = ["review"]
+metadata = { "gc.run_target" = "gc.run-operator" }
+description_file = "../assets/workflows/compound-build/finalize.md"

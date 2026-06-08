@@ -1,0 +1,72 @@
+description = """
+Default Gas City implementation of build-base.
+
+This concrete workflow uses the built-in Gas City requirement, design review,
+decomposition, implementation, review, and publish helpers while preserving the
+same full-lifecycle stage contract exposed by build-base.
+"""
+formula = "build-basic"
+version = 1
+contract = "graph.v2"
+extends = ["build-base"]
+target_required = true
+
+[catalog]
+name = "build-basic"
+description = "Run the default Gas City full-lifecycle build workflow from requirements through clean review and optional publish."
+
+[[steps]]
+id = "requirements"
+title = "Generate requirements"
+needs = ["prepare"]
+metadata = { "gc.run_target" = "gc.requirements-planner" }
+description_file = "../assets/workflows/build-basic/requirements.md"
+
+[[steps]]
+id = "plan"
+title = "Write implementation plan"
+needs = ["requirements"]
+metadata = { "gc.run_target" = "gc.design-author" }
+description_file = "../assets/workflows/build-basic/plan.md"
+
+[[steps]]
+id = "plan-review"
+title = "Run design review"
+needs = ["plan"]
+metadata = { "gc.run_target" = "gc.review-synthesizer" }
+description_file = "../assets/workflows/build-basic/plan-review.md"
+
+[[steps]]
+id = "decompose"
+title = "Create task beads"
+needs = ["plan-review"]
+metadata = { "gc.run_target" = "gc.task-decomposer" }
+description_file = "../assets/workflows/build-basic/decompose.md"
+
+[[steps]]
+id = "implement"
+title = "Run build implementation"
+needs = ["decompose"]
+metadata = { "gc.run_target" = "gc.implementation-worker" }
+description_file = "../assets/workflows/build-basic/implement.md"
+
+[[steps]]
+id = "review"
+title = "Run implementation review"
+needs = ["implement"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer" }
+description_file = "../assets/workflows/build-basic/review.md"
+
+[[steps]]
+id = "finalize"
+title = "Finalize build-basic"
+needs = ["review"]
+metadata = { "gc.run_target" = "gc.run-operator" }
+description_file = "../assets/workflows/build-basic/finalize.md"
+
+[[steps]]
+id = "publish"
+title = "Optionally publish build-basic"
+needs = ["finalize"]
+metadata = { "gc.run_target" = "gc.publisher" }
+description_file = "../assets/workflows/build-basic/publish.md"

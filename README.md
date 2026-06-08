@@ -50,6 +50,16 @@ Browse the tree for the current set; each pack has its own README.
 - [cass](./cass) adds a shared `cass-search` prompt fragment and Claude skill
   overlay for searching past coding-agent sessions.
 
+### Build methodology packs
+
+- [gascity](./gascity) provides the `build-base` workflow contract and the
+  default `build-basic` implementation.
+- [compound-engineering](./compound-engineering) implements `build-base` with
+  vendored Compound Engineering skills.
+- [superpowers](./superpowers) implements `build-base` with vendored
+  Superpowers skills.
+- [bmad](./bmad) implements `build-base` with vendored BMAD Method skills.
+
 ### Slack packs (tiered)
 
 The Slack provider ships as three tiers — pick the smallest one that covers

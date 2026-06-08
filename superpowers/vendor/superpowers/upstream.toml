@@ -1,0 +1,17 @@
+[upstream]
+name = "Superpowers"
+source = "https://github.com/obra/superpowers"
+commit = "6fd4507659784c351abbd2bc264c7162cfd386dc"
+license = "MIT"
+vendored_paths = [
+  "skills/brainstorming",
+  "skills/writing-plans",
+  "skills/executing-plans",
+  "skills/subagent-driven-development",
+  "skills/requesting-code-review",
+  "skills/receiving-code-review",
+  "skills/finishing-a-development-branch",
+  "skills/test-driven-development",
+  "skills/verification-before-completion",
+  "skills/using-git-worktrees",
+]

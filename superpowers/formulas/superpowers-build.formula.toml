@@ -1,0 +1,50 @@
+description = """
+Superpowers implementation of the Gas City build-base contract.
+
+This formula vendors the Superpowers development skills and maps them onto the
+build-base lifecycle.
+"""
+formula = "superpowers-build"
+version = 1
+contract = "graph.v2"
+extends = ["build-base"]
+target_required = true
+
+[catalog]
+name = "superpowers-build"
+description = "Run build-base with vendored Superpowers brainstorming, planning, execution, review, and finalization skills."
+
+[[steps]]
+id = "requirements"
+title = "Superpowers brainstorm requirements"
+needs = ["prepare"]
+metadata = { "gc.run_target" = "gc.requirements-planner" }
+description_file = "../assets/workflows/superpowers-build/requirements.md"
+
+[[steps]]
+id = "plan"
+title = "Superpowers write plan"
+needs = ["requirements"]
+metadata = { "gc.run_target" = "gc.design-author" }
+description_file = "../assets/workflows/superpowers-build/plan.md"
+
+[[steps]]
+id = "implement"
+title = "Superpowers execute plan"
+needs = ["decompose"]
+metadata = { "gc.run_target" = "gc.implementation-worker" }
+description_file = "../assets/workflows/superpowers-build/implement.md"
+
+[[steps]]
+id = "review"
+title = "Superpowers request code review"
+needs = ["implement"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer" }
+description_file = "../assets/workflows/superpowers-build/review.md"
+
+[[steps]]
+id = "finalize"
+title = "Superpowers finish branch"
+needs = ["review"]
+metadata = { "gc.run_target" = "gc.run-operator" }
+description_file = "../assets/workflows/superpowers-build/finalize.md"

@@ -1,0 +1,57 @@
+description = """
+BMAD Method implementation of the Gas City build-base contract.
+
+This formula vendors the BMAD lifecycle skills and maps BMAD phases onto
+build-base stages.
+"""
+formula = "bmad-build"
+version = 1
+contract = "graph.v2"
+extends = ["build-base"]
+target_required = true
+
+[catalog]
+name = "bmad-build"
+description = "Run build-base with vendored BMAD PRD, architecture, readiness, epics/stories, implementation, and review skills."
+
+[[steps]]
+id = "requirements"
+title = "BMAD PRD requirements"
+needs = ["prepare"]
+metadata = { "gc.run_target" = "gc.requirements-planner" }
+description_file = "../assets/workflows/bmad-build/requirements.md"
+
+[[steps]]
+id = "plan"
+title = "BMAD architecture plan"
+needs = ["requirements"]
+metadata = { "gc.run_target" = "gc.design-author" }
+description_file = "../assets/workflows/bmad-build/plan.md"
+
+[[steps]]
+id = "plan-review"
+title = "BMAD implementation readiness"
+needs = ["plan"]
+metadata = { "gc.run_target" = "gc.review-synthesizer" }
+description_file = "../assets/workflows/bmad-build/plan-review.md"
+
+[[steps]]
+id = "decompose"
+title = "BMAD epics and stories"
+needs = ["plan-review"]
+metadata = { "gc.run_target" = "gc.task-decomposer" }
+description_file = "../assets/workflows/bmad-build/decompose.md"
+
+[[steps]]
+id = "implement"
+title = "BMAD quick development"
+needs = ["decompose"]
+metadata = { "gc.run_target" = "gc.implementation-worker" }
+description_file = "../assets/workflows/bmad-build/implement.md"
+
+[[steps]]
+id = "review"
+title = "BMAD code review"
+needs = ["implement"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer" }
+description_file = "../assets/workflows/bmad-build/review.md"
