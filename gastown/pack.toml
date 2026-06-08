@@ -20,6 +20,9 @@
 name = "gastown"
 schema = 2
 
+[imports.maintenance]
+source = "../maintenance"
+
 [global]
 session_live = [
     "{{.ConfigDir}}/assets/scripts/tmux-theme.sh {{.Session}} {{.Agent}} {{.ConfigDir}}",
