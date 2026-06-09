@@ -83,3 +83,7 @@ jobs:
         run: |
           go install github.com/gastownhall/gascity/cmd/gc@latest
           GC_BIN="$(go env GOPATH)/bin/gc" ./conformance.sh
+
+      - name: Run gastown pack content tests
+        working-directory: gastown/tests
+        run: go test ./...
