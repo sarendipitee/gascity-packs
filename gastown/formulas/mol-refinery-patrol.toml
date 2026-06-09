@@ -590,12 +590,17 @@ lookup_pr_info() {
   if ! init_github_rest 2>"$err_file"; then
     return 1
   fi
-  PR_REF_REPO=$(printf '%s\n' "$ref" | sed -nE 's#^[Hh][Tt][Tt][Pp][Ss]://github.com/([^/]+/[^/]+)/pull/[0-9]+/?$#\\1#p' | head -n 1)
+  PR_REF_REPO=$(printf '%s\n' "$ref" | jq -rR 'gsub("(?i)^https://github[.]com/";"") | if test("^[^/]+/[^/]+/pull/[0-9]+[/]?$") then split("/pull/")[0] else "" end')
   if [ -n "$PR_REF_REPO" ] && [ "$PR_REF_REPO" != "$ORIGIN_REPO" ]; then
     echo "Pull request $ref belongs to repo $PR_REF_REPO, want $ORIGIN_REPO." >"$err_file"
     return 1
   fi
-  PR_NUMBER=$(printf '%s\n' "$ref" | sed -nE 's#^[Hh][Tt][Tt][Pp][Ss]://github.com/[^/]+/[^/]+/pull/([0-9]+)/?$#\\1#p; s|^#([0-9]+)$|\\1|p; s|^([0-9]+)$|\\1|p' | head -n 1)
+  PR_NUMBER=$(printf '%s\n' "$ref" | jq -rR '
+    if test("(?i)^https://github[.]com/[^/]+/[^/]+/pull/[0-9]+[/]?$") then
+      split("/pull/")[1] | split("/")[0]
+    elif test("^#[0-9]+$") then ltrimstr("#")
+    elif test("^[0-9]+$") then .
+    else "" end')
   if [ -z "$PR_NUMBER" ]; then
     PR_MATCHES=$(curl_gh_api "$err_file" \
       --get "$API/pulls" \
@@ -647,7 +652,7 @@ if [ "$MERGE_STRATEGY" = "mr" ] && [ -n "$EXISTING_PR" ]; then
   EXISTING_PR_HEAD=$(printf '%s\n' "$EXISTING_PR_INFO" | jq -r '.headRefName')
   EXISTING_PR_BASE=$(printf '%s\n' "$EXISTING_PR_INFO" | jq -r '.baseRefName')
   EXISTING_PR_URL=$(printf '%s\n' "$EXISTING_PR_INFO" | jq -r '.url')
-  EXISTING_PR_REPO=$(printf '%s\n' "$EXISTING_PR_URL" | sed -E 's#^https://github.com/([^/]+/[^/]+)/pull/[0-9]+$#\\1#')
+  EXISTING_PR_REPO=$(printf '%s\n' "$EXISTING_PR_URL" | jq -rR 'gsub("(?i)^https://github[.]com/";"") | split("/pull/")[0]')
   EXISTING_PR_HEAD_REPO=$(printf '%s\n' "$EXISTING_PR_INFO" | jq -r '.headRepositoryOwner.login + "/" + .headRepository.name')
 
   if [ "$EXISTING_PR_STATE" != "OPEN" ]; then
@@ -915,7 +920,7 @@ PR_NUMBER=$(printf '%s\n' "$PR_INFO" | jq -r '.number')
 PR_STATE=$(printf '%s\n' "$PR_INFO" | jq -r '.state')
 PR_HEAD=$(printf '%s\n' "$PR_INFO" | jq -r '.headRefName')
 PR_BASE=$(printf '%s\n' "$PR_INFO" | jq -r '.baseRefName')
-PR_REPO=$(printf '%s\n' "$PR_URL" | sed -E 's#^https://github.com/([^/]+/[^/]+)/pull/[0-9]+$#\\1#')
+PR_REPO=$(printf '%s\n' "$PR_URL" | jq -rR 'gsub("(?i)^https://github[.]com/";"") | split("/pull/")[0]')
 PR_HEAD_REPO=$(printf '%s\n' "$PR_INFO" | jq -r '.headRepositoryOwner.login + "/" + .headRepository.name')
 echo "$PR_URL $PR_NUMBER $PR_STATE $PR_HEAD $PR_BASE $PR_REPO $PR_HEAD_REPO"
 if [ "$PR_STATE" != "OPEN" ]; then
