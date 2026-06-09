@@ -25,9 +25,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
-          go-version-file: slack-full/adapter/go.mod
+          go-version-file: gastown/tests/go.mod
           cache-dependency-path: |
-            slack-full/cli/go.sum
+            gastown/tests/go.sum
 
       - name: Install Python test dependencies
         run: python3 -m pip install PyYAML pytest jsonschema
@@ -52,4 +52,8 @@ jobs:
 
       - name: Run Slack mini adapter tests
         working-directory: slack-mini/adapter
+        run: go test ./...
+
+      - name: Run gastown pack content tests
+        working-directory: gastown/tests
         run: go test ./...
