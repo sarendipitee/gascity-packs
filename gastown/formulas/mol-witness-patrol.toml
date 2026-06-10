@@ -179,9 +179,13 @@ a NEW session with a different ID — the old one never comes back.
    configured named identity.
 
    Two schema facts this recipe depends on (verified live, gc-3tn8g):
-   - `gc session list --json` returns an OBJECT `{sessions:[...], ...}`, not
-     a top-level array — iterate `.sessions[]`, never the top level (the
-     top-level values include booleans, so `$x.id` on them errors).
+   - As of gc v1.1.1 `gc session list --json` returns an OBJECT
+     `{filters, ok, schema_version, sessions, summary}`, not a top-level array
+     — iterate the array under `.sessions`, never the top level (the top-level
+     values include booleans, so `$x.id` on them errors). Older gc versions
+     returned a flat top-level array; normalize with `(.sessions? // .)` so the
+     same recipe works across both shapes (when `.sessions` is absent the whole
+     value IS already the array).
    - Session fields are lowercase snake_case: `id / name / session_name /
      alias / agent_name / state / closed`. Key the map on `id`, `name`,
      `session_name`, `alias`, and `agent_name` — the exact identifier forms
@@ -200,7 +204,7 @@ a NEW session with a different ID — the old one never comes back.
        if (($key // "") | length) == 0 then $m
        else $m + {($key): (if $closed then "closed" else ($state // "") end)}
        end;
-     (reduce ($sessions[0].sessions // [])[] as $s ({};
+     (reduce (($sessions[0].sessions? // $sessions[0]) // [])[] as $s ({};
          add(.; $s.id;         $s.state; ($s.closed // false))
        | add(.; $s.name;       $s.state; ($s.closed // false))
        | add(.; $s.session_name; $s.state; ($s.closed // false))
@@ -210,7 +214,7 @@ a NEW session with a different ID — the old one never comes back.
      | reduce ($session_beads[0] // [])[] as $b ($from_sessions;
          add(.; $b.metadata.configured_named_identity; $b.metadata.state; ($b.status == "closed")))')
 
-   SESSION_COUNT=$(jq -r '(.sessions // []) | length' "$SESSIONS_FILE")
+   SESSION_COUNT=$(jq -r '(.sessions? // . // []) | length' "$SESSIONS_FILE")
    MAP_COUNT=$(printf '%s' "$LIVENESS_MAP" | jq -r 'length')
    rm -f "$SESSIONS_FILE" "$SESSION_BEADS_FILE"
    ```
