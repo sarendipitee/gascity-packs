@@ -129,8 +129,13 @@ fi
 # incorrectly reset, racing against active polekitten work and producing a
 # false-orphan loop.
 # Two bugs the chronic strip pattern (gastownhall/gascity#2363) revealed:
-# (1) The JSON shape is {"sessions":[...], "summary":..., "filters":..., "schema_version":...},
-#     so `.[]` iterated four top-level scalar keys instead of session objects.
+# (1) As of gc v1.1.1 the JSON shape is
+#     {"filters":..., "ok":..., "schema_version":..., "sessions":[...], "summary":...},
+#     so a bare `.[]` iterated top-level scalar keys instead of session objects.
+#     `(.sessions? // .)` normalizes to the array: the new object exposes its
+#     `.sessions`, while the OLD flat top-level-array shape falls through to `.`
+#     itself. `arrays[]?` then iterates only when the result is actually an
+#     array, so neither shape errors or yields scalars.
 # (2) Field names vary by runtime/API path. The current CLI emits snake_case
 #     (.closed/.id/.session_name/.alias/.agent_name); PascalCase is accepted
 #     only as forward-compatible hardening so a casing change cannot make
@@ -140,7 +145,7 @@ LIVE_SESSION_IDS=$(jq -r -s '
       if has($snake) and .[$snake] != null then .[$snake]
       elif has($pascal) and .[$pascal] != null then .[$pascal]
       else $default end;
-    .[] | .sessions[]?
+    .[] | (.sessions? // .) | arrays[]?
     | select(
         (pick("closed"; "Closed"; false) == false)
         and ((pick("state"; "State"; "") | ascii_downcase) != "closed")
