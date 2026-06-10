@@ -14,6 +14,14 @@
 #      states (crashed / creating / failed-create / closed). `asleep`,
 #      `active`, `awake`, `running` are all ALIVE (an idle refinery sleeps).
 #
+#   1b. Witness heartbeat freshness. A witness in an ALIVE state can still have
+#      a silently-dead self-scheduled patrol loop — it just sits `asleep`
+#      forever. The chronic real failure (patrol stalls of 14h-63h, all while
+#      "asleep"/"active") is invisible to the dead-state check above. So we also
+#      treat an ALIVE witness whose last-active heartbeat is older than
+#      $WATCHDOG_WITNESS_STALE_MIN minutes as STALLED. A healthy witness sleeps
+#      ~60s between patrol cycles, so >15 min of silence means the loop is dead.
+#
 #   2. Merge freshness: the refinery has merged to the rig's default branch
 #      within $WATCHDOG_FRESH_MIN minutes (last commit time on the default
 #      branch), OR its merge queue is genuinely empty (no open/in_progress
@@ -30,6 +38,7 @@
 #   WATCHDOG_ESCALATE_TO   recipient for incident mail        (default: mayor)
 #   WATCHDOG_FRESH_MIN     merge-freshness window, minutes    (default: 60)
 #   WATCHDOG_REALERT_TICKS re-alert cadence for a live incident (default: 5)
+#   WATCHDOG_WITNESS_STALE_MIN witness heartbeat staleness, minutes (default: 15)
 set -euo pipefail
 
 # Trace bd/gc invocations to $GC_BD_TRACE_JSON when set (no-op otherwise).
@@ -40,6 +49,7 @@ __SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ESCALATE_TO="${WATCHDOG_ESCALATE_TO:-mayor}"
 FRESH_MIN="${WATCHDOG_FRESH_MIN:-60}"
 REALERT_TICKS="${WATCHDOG_REALERT_TICKS:-5}"
+WITNESS_STALE_MIN="${WATCHDOG_WITNESS_STALE_MIN:-15}"
 
 CITY="${GC_CITY:-.}"
 PACK_STATE_DIR="${GC_PACK_STATE_DIR:-${GC_CITY_RUNTIME_DIR:-$CITY/.gc/runtime}/packs/maintenance}"
@@ -49,6 +59,22 @@ mkdir -p "$PACK_STATE_DIR"
 
 NOW=$(date +%s)
 FRESH_SECS=$((FRESH_MIN * 60))
+WITNESS_STALE_SECS=$((WITNESS_STALE_MIN * 60))
+
+# ts_epoch — parse an RFC3339 timestamp to epoch seconds, returning 0 for an
+# empty value or the Go zero-time sentinel (0001-01-01T00:00:00Z) that gc emits
+# for a session that has not recorded that field yet. A 0 result means "no
+# usable signal" — never "ancient".
+ts_epoch() {
+    local ts="$1"
+    case "$ts" in
+        ""|null|0001-01-01T00:00:00Z|0001-*) printf '0'; return 0 ;;
+    esac
+    local e
+    e=$(date -u -d "$ts" +%s 2>/dev/null) || { printf '0'; return 0; }
+    # Guard against any other pre-epoch/sentinel value slipping through.
+    [ "$e" -gt 0 ] 2>/dev/null && printf '%s' "$e" || printf '0'
+}
 
 # normalize_sessions — tolerate both the v1.1.1 object shape
 # ({filters,ok,schema_version,sessions,summary}) and the OLD flat top-level
@@ -112,6 +138,27 @@ while IFS=$'\t' read -r rig rig_path default_branch; do
         " 2>/dev/null || printf 'absent'
     }
 
+    # role_heartbeat — newest heartbeat timestamp string for the named role,
+    # taken as the max of last_active / last_nudge_delivered_at (the patrol
+    # loop's self-nudge keeps last_nudge_delivered_at fresh; last_active is the
+    # zero sentinel for an asleep session). Empty string when the role is absent
+    # or exposes no usable timestamp.
+    role_heartbeat() {
+        local role="$1"
+        printf '%s' "$sess" | jq -r --arg role "$role" "
+            [ $SESSIONS_JQ
+              | .[]
+              | select(((.name // \"\") | test(\"\\\\.\" + \$role + \"\$\"))
+                       or ((.agent_name // \"\") | test(\"\\\\.\" + \$role + \"\$\"))
+                       or ((.role // \"\") | test(\"\\\\.\" + \$role + \"\$\"))) ]
+            | .[0]
+            | [ (.last_active // empty), (.last_nudge_delivered_at // empty) ]
+            | map(select(. != null and . != \"\" and (startswith(\"0001-\") | not)))
+            | sort
+            | (last // \"\")
+        " 2>/dev/null || printf ''
+    }
+
     witness_state=$(role_state witness)
     refinery_state=$(role_state refinery)
     [ -n "$witness_state" ] || witness_state="absent"
@@ -133,6 +180,32 @@ Evidence:
   default branch = $default_branch
 
 Action: gc session reset $rig/<witness-alias>  (or respawn the rig witness)."
+    else
+        # --- Check 1b: ALIVE witness with a stalled (dead) patrol loop. ---
+        # Distinct symptom-class (:witness:stalled) from :witness:dead so de-dup
+        # treats them as separate incidents.
+        hb=$(role_heartbeat witness)
+        hb_epoch=$(ts_epoch "$hb")
+        if [ "$hb_epoch" -gt 0 ]; then
+            hb_age=$((NOW - hb_epoch))
+            if [ "$hb_age" -ge "$WITNESS_STALE_SECS" ]; then
+                escalate "$rig:witness:stalled" \
+                    "[INCIDENT] rig $rig: witness stalled (last active $((hb_age / 60))m ago)" \
+                    "Watchdog tick $(date -u +%Y-%m-%dT%H:%M:%SZ): the witness session for rig '$rig' is in an alive state ('$witness_state') but its self-scheduled patrol loop has gone silent.
+
+A healthy witness sleeps ~60s between patrol cycles, so a heartbeat this old means
+the ScheduleWakeup loop has silently died — the witness is alive but not patrolling.
+
+Evidence:
+  rig            = $rig
+  witness state  = $witness_state
+  last heartbeat = $hb ($((hb_age / 60)) min ago, threshold $WITNESS_STALE_MIN min)
+  refinery state = $refinery_state
+  default branch = $default_branch
+
+Action: nudge / gc session reset $rig/<witness-alias> to restart the patrol loop."
+            fi
+        fi
     fi
 
     # --- Check 2: refinery dead-state OR merge-freshness stall. ---
