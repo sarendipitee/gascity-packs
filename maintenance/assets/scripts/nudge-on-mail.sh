@@ -25,6 +25,10 @@ CITY="${GC_CITY:-.}"
 LOOKBACK="${GC_NUDGE_ON_MAIL_LOOKBACK:-2m}"
 RETENTION="${GC_NUDGE_ON_MAIL_RETENTION:-1h}"
 NUDGE_MESSAGE="${GC_NUDGE_ON_MAIL_MESSAGE:-You have new mail — run gc hook to process it}"
+# Per-session rate limit: a given recipient is nudged at most once per
+# COOLDOWN, so a burst of mail (watchdog incidents, advisories, digests)
+# collapses into a single wake instead of one interruption per bead.
+COOLDOWN="${GC_NUDGE_ON_MAIL_COOLDOWN:-10m}"
 
 PACK_STATE_DIR="${GC_PACK_STATE_DIR:-${GC_CITY_RUNTIME_DIR:-$CITY/.gc/runtime}/packs/maintenance}"
 STATE_FILE="$PACK_STATE_DIR/nudge-on-mail-state.json"
@@ -58,17 +62,30 @@ STATE="$(cat "$STATE_FILE" 2>/dev/null || true)"
 echo "$STATE" | jq -e 'type == "object"' >/dev/null 2>&1 || STATE='{}'
 
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+COOLDOWN_S="$(duration_to_seconds "$COOLDOWN")"
 NUDGED=0
 while IFS="$(printf '\t')" read -r bead_id assignee; do
     [ -n "$bead_id" ] || continue
     [ -n "$assignee" ] || continue
     key="$bead_id"
+    # Already processed this mail bead — refresh its timestamp and skip.
     if echo "$STATE" | jq -e --arg k "$key" 'has($k)' >/dev/null 2>&1; then
         STATE="$(echo "$STATE" | jq --arg k "$key" --arg now "$NOW" '.[$k] = $now')"
         continue
     fi
+    # Record the bead as seen up front so a rate-limited burst is not
+    # re-evaluated on every subsequent tick.
+    STATE="$(echo "$STATE" | jq --arg k "$key" --arg now "$NOW" '.[$k] = $now')"
+    # Per-session rate limit: skip the nudge if this assignee was already
+    # nudged within COOLDOWN. Uses the same jq epoch clock as the retention
+    # prune below. Session entries are namespaced "session:<assignee>".
+    skey="session:$assignee"
+    if echo "$STATE" | jq -e --arg k "$skey" --argjson cd "$COOLDOWN_S" \
+        'has($k) and ((now - (.[$k] | fromdateiso8601)) < $cd)' >/dev/null 2>&1; then
+        continue
+    fi
     if gc session nudge "$assignee" "$NUDGE_MESSAGE" >/dev/null 2>&1; then
-        STATE="$(echo "$STATE" | jq --arg k "$key" --arg now "$NOW" '.[$k] = $now')"
+        STATE="$(echo "$STATE" | jq --arg k "$skey" --arg now "$NOW" '.[$k] = $now')"
         NUDGED=$((NUDGED + 1))
     fi
 done <<EOF
