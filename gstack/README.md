@@ -44,6 +44,32 @@ Set `interaction_mode=autonomous` when an adapter must avoid human gates. Set
 or opening release paths. The key mode variables are `interaction_mode` and
 `review_mode`.
 
+## Supported Modes and Drain Policies
+
+Supported modes and drain policies, as declared in
+`[metadata.gc.methodology]` of `gstack-build`:
+
+- `interaction_modes`: `interactive`, `autonomous`, `headless` (inherited
+  `interaction_mode` var; the pack pins the default to `interactive` because
+  raw gstack is conversation-heavy)
+- `review_modes`: `report`, `agent`, `interactive` (inherited `review_mode`
+  var; the pack pins the default to `interactive` to match the office-hours
+  posture)
+- `implementation_strategy`: `drain` with `allowed_drain_policies` of
+  `separate` (drains `gstack-work` item formulas with exclusive member
+  access) and `same-session` (drains `gstack-work-item` in one shared
+  single-lane session with `on_item_failure = "skip_remaining"`)
+
+The review/fix loop is graph structure: the `review` anchor expands
+`gstack-code-review`, which records the review context, fans out sibling
+staff, QA-evidence, CSO-security, and gap-analysis lanes, fans in at
+`synthesize-code-review`, and loops an `apply-review-findings` lane (routed
+to the caller-selected implementation target) through a bounded graph check
+until the `code_review.verdict=done` approval lands on the workflow root. The
+`qa` and `release-readiness` anchors apply the same check-gated loop shape,
+and `gstack-fix-loop` carries the review-fix contract for standalone adapter
+use.
+
 ## Adapter Selectors
 
 Use these values when launching shared Gas City adapters:
