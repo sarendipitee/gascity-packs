@@ -1,0 +1,33 @@
+# Deterministic per-rig agent + merge-freshness watchdog.
+#
+# Catches the failure where a critical rig agent (refinery / witness) silently
+# dies, or the refinery stalls with a real merge backlog (queue >= WATCHDOG_MIN_QUEUE or unmerged feature branches), with no alert.
+# Implemented as a plain exec order (no LLM, no agent, no wisp) BECAUSE the
+# Witness LLM patrol loop is itself the thing that silently dies — a
+# deterministic shell tick survives where the agent loop does not.
+#
+# RIG-SCOPED. This order leaves `scope` unset, so it is rig-scoped (the default,
+# same as orphan-sweep): the controller registers + fans it out once per
+# importing rig and stamps $GC_RIG with that rig's name. The script checks ONLY
+# its $GC_RIG and no-ops on the empty HQ/global scope, so there is exactly one
+# effective invocation per rig with no global all-rigs duplicate racing the
+# shared ledger. The ledger filename includes the rig name for the same reason.
+#
+# For its rig it verifies the refinery + witness sessions are alive and that the
+# refinery is either merging within the freshness window or has no REAL backlog.
+# A dead/crashed refinery is always an incident; a merge-stall fires only when a
+# real backlog waits (>= WATCHDOG_MIN_QUEUE merge beads, or actual unmerged
+# feature branches) — a lone stale bead on a quiet idle dev rig is not a stall.
+# On a dead agent or qualifying stall it mails a [INCIDENT] escalation (de-duped
+# via a per-rig ledger) to WATCHDOG_ESCALATE_TO.
+#
+# Tunable via env (set on the controller): WATCHDOG_ESCALATE_TO (default mayor),
+# WATCHDOG_FRESH_MIN (default 60), WATCHDOG_REALERT_TICKS (default 5),
+# WATCHDOG_WITNESS_STALE_MIN (default 15), WATCHDOG_MIN_QUEUE (default 2 —
+# minimum merge-queue depth to raise a merge-stall; the dead-refinery escalation
+# is ungated by it).
+[order]
+description = "Watchdog: rig refinery/witness liveness + refinery merge freshness"
+trigger = "cooldown"
+interval = "3m"
+exec = "$PACK_DIR/assets/scripts/rig-liveness-watchdog.sh"
