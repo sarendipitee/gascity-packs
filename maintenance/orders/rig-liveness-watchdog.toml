@@ -1,0 +1,20 @@
+# Deterministic per-rig agent + merge-freshness watchdog.
+#
+# Catches the failure where a critical rig agent (refinery / witness) silently
+# dies, or the refinery stalls with a non-empty merge queue, with no alert.
+# Implemented as a plain exec order (no LLM, no agent, no wisp) BECAUSE the
+# Witness LLM patrol loop is itself the thing that silently dies — a
+# deterministic shell tick survives where the agent loop does not.
+#
+# For every running, non-suspended rig it verifies the refinery + witness
+# sessions are alive and that the refinery is either merging within the
+# freshness window or has a genuinely empty queue. On a dead agent or stall it
+# mails a [INCIDENT] escalation (de-duped via a ledger) to WATCHDOG_ESCALATE_TO.
+#
+# Tunable via env (set on the controller): WATCHDOG_ESCALATE_TO (default mayor),
+# WATCHDOG_FRESH_MIN (default 60), WATCHDOG_REALERT_TICKS (default 5).
+[order]
+description = "Watchdog: rig refinery/witness liveness + refinery merge freshness"
+trigger = "cooldown"
+interval = "3m"
+exec = "$PACK_DIR/assets/scripts/rig-liveness-watchdog.sh"
