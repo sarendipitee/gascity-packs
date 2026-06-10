@@ -64,7 +64,7 @@ duration_to_seconds() {
 nudge_routed_target() {
     _target="$1"
     _members="$(gc session list --json --state active --template "$_target" 2>/dev/null \
-        | jq -r '(.sessions // [])[] | .name // .id' 2>/dev/null)" || _members=""
+        | jq -r '(.sessions? // . // []) | arrays[]? | .name // .id' 2>/dev/null)" || _members=""
     if [ -n "$_members" ]; then
         _any=1
         while IFS= read -r _m; do
