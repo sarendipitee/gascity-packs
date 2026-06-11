@@ -385,9 +385,27 @@ gc bd update <bead> --set-metadata recovered=true
 ```
 
 **Exit criteria:** All orphaned beads recovered, worktrees cleaned.
-Or no orphans found. Continue to `check-refinery` — do NOT exit the
-wisp here. The `next-iteration` step is the only place that pours the
-next wisp and burns this one."""
+Or no orphans found. **CRITICAL: do NOT exit, return, or stop here.**
+
+This step MUST continue to the next step. If you encounter an error
+(jq parsing failure, timeout, missing command, etc.), log it and continue
+anyway — do not let errors block the forward chain. The refinery queue
+health check, polecat health check, and wisp burning must all happen.
+
+If this step encounters an unrecoverable error, send a diagnostic mail
+to the mayor but then CONTINUE to `check-refinery` (do NOT exit):
+
+```bash
+# Example: if jq fails on session list
+if ! LIVENESS_MAP=$(jq ... 2>/dev/null); then
+  gc mail send mayor/ -s "WITNESS: recover-orphaned-beads jq error" -m "jq parsing failed; continuing patrol cycle anyway"
+  # Do NOT exit. Continue to next step.
+fi
+```
+
+Continuing to `check-refinery` — do NOT exit the wisp here. The
+`next-iteration` step is the only place that pours the next wisp and burns
+this one."""
 
 [[steps]]
 id = "check-refinery"
@@ -430,9 +448,12 @@ Recommendation: <what should happen>"
 ```
 
 **Exit criteria:** Queue health assessed; nudge sent or escalation
-filed if needed. Continue to `check-polecat-health` — do NOT exit the
-wisp here. The `next-iteration` step is the only place that pours the
-next wisp and burns this one."""
+filed if needed. **CRITICAL: do NOT exit, return, or stop here.**
+
+Any errors (beads missing, refinery session down, queue fetch failed) should
+be logged and escalated, but must NOT block continuation. Continue to
+`check-polecat-health` — do NOT exit the wisp here. The `next-iteration` step
+is the only place that pours the next wisp and burns this one."""
 
 [[steps]]
 id = "check-polecat-health"
@@ -487,9 +508,14 @@ system handles it. Only escalate if you see a pattern (many stuck
 polecats, systemic issue).
 
 **Exit criteria:** All active polecat work beads assessed. Warrants
-filed for stuck agents. Or no stuck polecats found. Continue to
-`next-iteration` — do NOT exit the wisp here. The `next-iteration` step
-is the only place that pours the next wisp and burns this one."""
+filed for stuck agents. Or no stuck polecats found. **CRITICAL: do NOT exit,
+return, or stop here.**
+
+Any errors (queries failing, warrant creation failing) should be logged and
+escalated but must NOT block continuation. This is the final step before
+next-iteration — the burn must happen. Continue to `next-iteration` — do
+NOT exit the wisp here. The `next-iteration` step is the only place that
+pours the next wisp and burns this one."""
 
 [[steps]]
 id = "next-iteration"
@@ -499,6 +525,34 @@ description = """
 **Config: event_timeout = {{event_timeout}}**
 
 End of patrol cycle. Pour the next iteration, then wait or exit.
+
+**PREAMBLE — Safety net for early-exit prevention:**
+
+THIS SECTION RUNS FIRST, before any other logic, to handle the case where
+earlier formula steps encountered an error and exited the formula early
+without reaching this step. The witness patrol loop depends on this step
+to burn wisps. If earlier steps error out or timeout, wisps accumulate unburned
+— exactly what we're fixing here (gc-pack-86n).
+
+**Step 0: Check if this is a resumed execution after an earlier step failed:**
+
+```bash
+CURRENT_WISP=${GC_BEAD_ID:-}
+if [ -z "$CURRENT_WISP" ]; then
+  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json --limit=1 2>/dev/null | jq -r '.[0].id // empty')
+fi
+if [ -z "$CURRENT_WISP" ]; then
+  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=open --json --limit=1 2>/dev/null | jq -r '.[0].id // empty')
+fi
+
+# If we found an old wisp (open status, old timestamp), it's a residual from
+# a prior failed cycle. Log and note it — we'll burn it at the end.
+if [ -n "$CURRENT_WISP" ]; then
+  WISP_AGE=$(gc bd show "$CURRENT_WISP" --json 2>/dev/null | jq -r '.[0].updated_at // .[0].created_at // ""' | \
+    xargs -I{} bash -c "echo $(( ($(date +%s) - $(date -d '{}' +%s 2>/dev/null || echo 0)) / 60 )) minutes ago")
+  echo "Found current wisp: $CURRENT_WISP (last updated $WISP_AGE)"
+fi
+```
 
 **1. Context check:**
 
@@ -511,13 +565,43 @@ is already assigned — the new session resumes from context.
 
 **2. Pour next iteration BEFORE burning:**
 ```bash
-NEXT=$(gc bd mol wisp mol-witness-patrol --root-only --var binding_prefix='{{binding_prefix}}' --json | jq -r '.new_epic_id')
-gc bd update "$NEXT" --assignee=$GC_AGENT
+NEXT=$(gc bd mol wisp mol-witness-patrol --root-only --var binding_prefix='{{binding_prefix}}' --json | jq -r '.new_epic_id // empty')
+if [ -z "$NEXT" ]; then
+  echo "FAILED to pour next witness wisp — unable to proceed. Burning current wisp anyway as fail-safe."
+  gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
+  gc mail send mayor/ -s "WITNESS: Failed to pour next wisp [CRITICAL]" \
+    -m "gc bd mol wisp failed to generate a new wisp ID. Current wisp $CURRENT_WISP was burned. Investigate mol wisp command."
+  gc runtime drain-ack
+  exit 1
+fi
+
+if ! gc bd update "$NEXT" --assignee=$GC_AGENT; then
+  echo "FAILED to assign next wisp — still burning current as fail-safe."
+  gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
+  gc mail send mayor/ -s "WITNESS: Failed to assign next wisp [CRITICAL]" \
+    -m "gc bd update to assign next wisp $NEXT failed. Current wisp $CURRENT_WISP was burned anyway. Investigate."
+  gc runtime drain-ack
+  exit 1
+fi
 ```
 
-**3. Burn this wisp:**
+**3. Burn this wisp (do NOT skip even on error):**
 ```bash
-gc bd mol burn <this-wisp-id> --force
+if [ -n "$CURRENT_WISP" ]; then
+  if gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null; then
+    echo "Successfully burned wisp $CURRENT_WISP"
+  else
+    echo "WARNING: burn command failed for $CURRENT_WISP, but continuing anyway"
+    gc mail send mayor/ -s "WITNESS: Burn command failed [WARNING]" \
+      -m "gc bd mol burn $CURRENT_WISP --force returned non-zero. Next wisp $NEXT is already assigned and will resume on restart."
+  fi
+else
+  echo "ERROR: Could not resolve CURRENT_WISP for burning. This should have been caught in preamble."
+  gc mail send mayor/ -s "WITNESS: No current wisp to burn [CRITICAL]" \
+    -m "Reached the burn step but CURRENT_WISP is empty. Check preamble logic."
+  gc runtime drain-ack
+  exit 1
+fi
 ```
 
 **4. Exit this turn:**
@@ -528,5 +612,30 @@ IDLE: no work, exiting turn.
 Then stop immediately. Do NOT sleep, call ScheduleWakeup, or use Monitor.
 The session_sleep policy will restart this session after the configured idle interval;
 the next wisp is already assigned and the restarted session resumes from it.
+
+**Safety mechanism — ALWAYS burn before exiting:**
+
+Before doing anything else in this step, resolve the current wisp ID. If you
+cannot determine it, escalate and exit (do not pour — fail-safe).
+
+```bash
+CURRENT_WISP=${GC_BEAD_ID:-}
+if [ -z "$CURRENT_WISP" ]; then
+  # GC_BEAD_ID not set by runtime. Try to query for in_progress wisp.
+  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json --limit=1 | jq -r '.[0].id // empty' 2>/dev/null)
+  # Fallback: if no in_progress, query for open wisp assigned to us (last resort).
+  if [ -z "$CURRENT_WISP" ]; then
+    CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=open --json --limit=1 | jq -r '.[0].id // empty' 2>/dev/null)
+  fi
+fi
+
+if [ -z "$CURRENT_WISP" ]; then
+  echo "CRITICAL: Cannot resolve current witness wisp — refusing to pour without a burn target."
+  gc mail send mayor/ -s "WITNESS: Cannot resolve current wisp for burning [CRITICAL]" \
+    -m "The witness patrol loop reached next-iteration but could not identify the current wisp ID to burn. This prevents the pour-and-burn cycle from completing. Check: (1) GC_BEAD_ID environment variable; (2) witness session's assigned wisps; (3) gc bd list output."
+  gc runtime drain-ack
+  exit 1
+fi
+```
 
 **Exit criteria:** Next wisp poured, this wisp burned, turn ended with IDLE signal."""
