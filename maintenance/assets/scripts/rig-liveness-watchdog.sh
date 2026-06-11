@@ -37,30 +37,40 @@
 #      failed-create / closed / missing) is ALWAYS an incident, regardless of
 #      queue depth — a crashed refinery is never normal.
 #
-#   2b. Merge-stall, gated on a REAL backlog. An idle/asleep refinery on a quiet
-#      dev rig is normal: low-activity rigs legitimately leave a lone stale bead
-#      assigned to a sleeping refinery for hours with no merge. That is NOT a
-#      stall. We only raise a merge-stall when there is genuine backlog pressure
-#      — the merge queue holds at least $WATCHDOG_MIN_QUEUE beads, OR there are
-#      actual unmerged feature branches waiting — AND no merge has landed on the
-#      default branch inside $WATCHDOG_FRESH_MIN minutes. A queue below the
-#      threshold with no unmerged branches is treated as idle, not stalled.
+#   2b. Merge-stall, gated on a REAL routed-bead backlog. An idle/asleep
+#      refinery on a quiet dev rig is normal: low-activity rigs legitimately
+#      leave beads assigned to a sleeping refinery for hours with no merge. That
+#      is NOT a stall. We raise a merge-stall ONLY when the refinery's routed
+#      merge queue holds at least $WATCHDOG_MIN_QUEUE genuinely-ready beads AND
+#      no merge has landed on the default branch inside $WATCHDOG_FRESH_MIN
+#      minutes. Freshness is measured against origin/<default> (the real merge
+#      target) when a remote-tracking ref exists, falling back to the local ref.
+#      Counting local feature branches is DELIBERATELY NOT a backlog signal:
+#      stale/abandoned/squash-merged branches accumulate forever on dev rigs and
+#      `git --no-contains` cannot see squash-merges, so branch-counting produced
+#      chronic phantom backlogs (an idle rig with a queue of 1 but 16 dead local
+#      branches was wrongly flagged as stalled). The routed-bead queue is the
+#      authoritative pressure signal; unmerged-branch count is evidence only.
 #
 # On any detected dead-agent or stall it mails a LOUD [INCIDENT] escalation to
 # $WATCHDOG_ESCALATE_TO (default: mayor) with concrete evidence. A JSON ledger
-# de-dups: the same incident only re-alerts every $WATCHDOG_REALERT_TICKS ticks
-# or when its symptom changes, so a persistent stall does not spam every tick.
+# de-dups two ways: (a) a hard wall-clock cooldown — a given (rig, incident-type)
+# re-alerts at most once per $WATCHDOG_COOLDOWN_MIN minutes, mirroring the
+# per-key cooldown in nudge-on-mail.sh; (b) within the cooldown the symptom is
+# silently re-counted, never re-mailed, so a persistent incident does not spam.
 #
 # Config (all env-overridable, upstream-friendly defaults):
 #   WATCHDOG_ESCALATE_TO   recipient for incident mail        (default: mayor)
 #   WATCHDOG_FRESH_MIN     merge-freshness window, minutes    (default: 60)
-#   WATCHDOG_REALERT_TICKS re-alert cadence for a live incident (default: 5)
+#   WATCHDOG_COOLDOWN_MIN  min minutes between re-alerts of the same
+#                          (rig, incident-type)               (default: 45)
 #   WATCHDOG_WITNESS_STALE_MIN witness heartbeat staleness, minutes (default: 15)
-#   WATCHDOG_MIN_QUEUE     minimum merge-queue depth to call a merge-stall
-#                          (default: 2) — below this, an idle refinery with no
-#                          unmerged feature branches is treated as quiet, not
-#                          stalled. The dead/crashed-refinery escalation is
-#                          UNGATED by this threshold.
+#   WATCHDOG_STARTUP_GRACE_MIN how long a transient 'creating' / startup state is
+#                          tolerated before it counts as dead  (default: 10)
+#   WATCHDOG_MIN_QUEUE     minimum routed merge-queue depth to call a merge-stall
+#                          (default: 2) — below this, an idle refinery is treated
+#                          as quiet, not stalled. The dead/crashed-refinery
+#                          escalation is UNGATED by this threshold.
 set -euo pipefail
 
 # Trace bd/gc invocations to $GC_BD_TRACE_JSON when set (no-op otherwise).
@@ -76,8 +86,9 @@ RIG="${GC_RIG:-}"
 
 ESCALATE_TO="${WATCHDOG_ESCALATE_TO:-mayor}"
 FRESH_MIN="${WATCHDOG_FRESH_MIN:-60}"
-REALERT_TICKS="${WATCHDOG_REALERT_TICKS:-5}"
+COOLDOWN_MIN="${WATCHDOG_COOLDOWN_MIN:-45}"
 WITNESS_STALE_MIN="${WATCHDOG_WITNESS_STALE_MIN:-15}"
+STARTUP_GRACE_MIN="${WATCHDOG_STARTUP_GRACE_MIN:-10}"
 MIN_QUEUE="${WATCHDOG_MIN_QUEUE:-2}"
 
 CITY="${GC_CITY:-.}"
@@ -94,6 +105,8 @@ mkdir -p "$PACK_STATE_DIR"
 NOW=$(date +%s)
 FRESH_SECS=$((FRESH_MIN * 60))
 WITNESS_STALE_SECS=$((WITNESS_STALE_MIN * 60))
+COOLDOWN_SECS=$((COOLDOWN_MIN * 60))
+STARTUP_GRACE_SECS=$((STARTUP_GRACE_MIN * 60))
 
 # ts_epoch — parse an RFC3339 timestamp to epoch seconds, returning 0 for an
 # empty value or the Go zero-time sentinel (0001-01-01T00:00:00Z) that gc emits
@@ -119,33 +132,94 @@ SESSIONS_JQ='(.sessions? // .) | if type == "array" then . else [] end'
 
 # Hard-dead session states: missing maps to "absent" below; these are the
 # states that mean a present session is not doing useful work and will not
-# recover on its own.
+# recover on its own. NOTE: 'creating' is intentionally NOT here — a session
+# mid-startup is transient and routinely flickers through 'creating' for a few
+# seconds on a fresh spawn or rig restart. Treating it as instant-dead caused
+# false "[INCIDENT] witness/refinery creating" spam. It is handled via the
+# startup-grace path (is_startup_state) instead.
 is_dead_state() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
-        crashed|creating|failed-create|failed_create|closed|"") return 0 ;;
+        crashed|failed-create|failed_create|closed|"") return 0 ;;
         *) return 1 ;;
     esac
 }
 
-COUNTS=$(cat "$LEDGER")
+# Transient startup/in-progress states. A session sitting in one of these for
+# longer than the startup grace window is treated as a genuinely stuck spawn;
+# inside the window it is healthy mid-startup and must not alert.
+is_startup_state() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        creating|starting|initializing) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Ledger shape. Each key maps to an object { c, t, f }:
+#   c  total times this incident has been observed (diagnostic)
+#   t  epoch of the last mail actually SENT for this incident (cooldown clock)
+#   f  epoch this incident was FIRST observed in the current streak (used by the
+#      startup-grace window so a 'creating' state must persist before it alerts)
+# Legacy ledgers stored a bare integer count; ledger_* readers coerce that to a
+# count with absent timestamps so an upgrade does not crash or lose dedup.
+COUNTS=$(cat "$LEDGER" 2>/dev/null || printf '{}')
+printf '%s' "$COUNTS" | jq -e 'type == "object"' >/dev/null 2>&1 || COUNTS='{}'
 INCIDENTS=0
 declare -A SEEN_KEYS=()
 
-# escalate — emit a de-duped [INCIDENT] mail. Args:
-#   $1 incident key (rig:agent:symptom-class), $2 subject, $3 body
+# ledger_last_alert KEY — epoch of the last mail sent for KEY (0 if none).
+ledger_last_alert() {
+    printf '%s' "$COUNTS" | jq -r --arg k "$1" \
+        '(.[$k] | if type=="object" then (.t // 0) else 0 end) // 0' 2>/dev/null || printf '0'
+}
+
+# ledger_first_seen KEY — epoch this incident streak began. Lazily stamps NOW
+# the first tick a streak is seen and returns it, so repeated calls within a
+# streak return the original first-seen epoch (the grace-window anchor).
+ledger_first_seen() {
+    local key="$1" f
+    f=$(printf '%s' "$COUNTS" | jq -r --arg k "$key" \
+        '(.[$k] | if type=="object" then (.f // 0) else 0 end) // 0' 2>/dev/null) || f=0
+    if [ "${f:-0}" -le 0 ] 2>/dev/null; then
+        f=$NOW
+        COUNTS=$(printf '%s' "$COUNTS" | jq --arg k "$key" --argjson f "$f" \
+            '.[$k] = ((.[$k] | if type=="object" then . else {} end) + {f:$f})' 2>/dev/null) || true
+    fi
+    printf '%s' "$f"
+}
+
+# mark_seen KEY — record that this incident streak is live this tick (so the
+# prune at the end keeps it) without sending mail or resetting cooldown.
+mark_seen() {
+    local key="$1"
+    SEEN_KEYS["$key"]=1
+    COUNTS=$(printf '%s' "$COUNTS" | jq --arg k "$key" --argjson n "$NOW" \
+        '.[$k] = ((.[$k] | if type=="object" then . else {} end)
+                  + {c: (((.[$k] // {}) | if type=="object" then (.c // 0) else (.[$k] // 0) end) + 1)}
+                  + (if ((.[$k] // {}) | type=="object" and (.f // 0) > 0) then {} else {f:$n} end))' 2>/dev/null) || true
+}
+
+# escalate — emit a [INCIDENT] mail, hard rate-limited by a per-key wall-clock
+# cooldown. Args: $1 incident key (rig:agent:symptom-class), $2 subject, $3 body
 escalate() {
     local key="$1" subject="$2" body="$3"
-    local prev
+    local last age
     SEEN_KEYS["$key"]=1
-    prev=$(printf '%s' "$COUNTS" | jq -r --arg k "$key" '.[$k] // 0' 2>/dev/null) || prev=0
-    # Re-alert only every REALERT_TICKS ticks while an incident persists.
-    if [ "$prev" -gt 0 ] && [ $((prev % REALERT_TICKS)) -ne 0 ]; then
-        COUNTS=$(printf '%s' "$COUNTS" | jq --arg k "$key" '.[$k] = ((.[$k] // 0) + 1)' 2>/dev/null) || true
+    last=$(ledger_last_alert "$key")
+    age=$((NOW - last))
+    # Within the cooldown window since the last actual mail: re-count, no re-mail.
+    if [ "${last:-0}" -gt 0 ] 2>/dev/null && [ "$age" -lt "$COOLDOWN_SECS" ]; then
+        mark_seen "$key"
         return 0
     fi
     gc mail send "$ESCALATE_TO" -s "$subject" -m "$body" 2>/dev/null || true
-    COUNTS=$(printf '%s' "$COUNTS" | jq --arg k "$key" '.[$k] = ((.[$k] // 0) + 1)' 2>/dev/null) || true
     INCIDENTS=$((INCIDENTS + 1))
+    SEEN_KEYS["$key"]=1
+    # Stamp last-alert epoch and bump count; preserve/establish first-seen.
+    COUNTS=$(printf '%s' "$COUNTS" | jq --arg k "$key" --argjson n "$NOW" \
+        '.[$k] = ((.[$k] | if type=="object" then . else {} end)
+                  + {t:$n}
+                  + {c: (((.[$k] // {}) | if type=="object" then (.c // 0) else (.[$k] // 0) end) + 1)}
+                  + (if ((.[$k] // {}) | type=="object" and (.f // 0) > 0) then {} else {f:$n} end))' 2>/dev/null) || true
 }
 
 # Resolve this rig's path + default branch from the registry. Scoped to $RIG so
@@ -206,8 +280,25 @@ refinery_state=$(role_state refinery)
 [ -n "$witness_state" ] || witness_state="absent"
 [ -n "$refinery_state" ] || refinery_state="absent"
 
+# startup_grace_exceeded KEY STATE — for a transient startup state, true only
+# once the streak has persisted past the grace window; otherwise records the
+# streak as seen (so the ledger entry survives pruning) and returns false so the
+# session is left alone mid-startup.
+startup_grace_exceeded() {
+    local key="$1" first age
+    first=$(ledger_first_seen "$key")
+    age=$((NOW - first))
+    if [ "$age" -ge "$STARTUP_GRACE_SECS" ]; then
+        return 0
+    fi
+    mark_seen "$key"
+    return 1
+}
+
 # --- Check 1: witness must be alive (it never legitimately sleeps off). ---
-if is_dead_state "$witness_state"; then
+if is_startup_state "$witness_state" && ! startup_grace_exceeded "$RIG:witness:dead" "$witness_state"; then
+    : # witness mid-startup within grace window — not an incident yet.
+elif is_dead_state "$witness_state" || is_startup_state "$witness_state"; then
     symptom="$witness_state"
     [ "$symptom" = "" ] && symptom="missing"
     escalate "$RIG:witness:dead" \
@@ -260,38 +351,53 @@ queue=$(gc bd list --rig "$RIG" --json --limit=0 2>/dev/null \
             | select((.ephemeral // false) != true) ] | length' 2>/dev/null) || queue=0
 [ -n "$queue" ] || queue=0
 
-# Last merge: last commit time on the rig's default branch. Missing repo /
-# branch yields 0 (unknown) and is treated as "no recent merge".
+# Last merge: last commit time on the rig's merge TARGET. The refinery merges
+# into origin/<default-branch>, so freshness must be measured against the
+# remote-tracking ref, not the local default ref (which a quiet dev rig can leave
+# stale for hours even while origin advances). Prefer origin/<default>; fall back
+# to the local ref only when no remote-tracking ref exists. Missing repo/branch
+# yields 0 (unknown) and is treated as "no recent merge".
 last_merge=0
+merge_ref=""
 if [ -n "$rig_path" ] && [ -n "$default_branch" ] && [ -d "$rig_path/.git" ]; then
-    last_merge=$(git -C "$rig_path" log -1 --format='%ct' "$default_branch" 2>/dev/null) || last_merge=0
+    if git -C "$rig_path" rev-parse --verify --quiet "refs/remotes/origin/$default_branch" >/dev/null 2>&1; then
+        merge_ref="origin/$default_branch"
+    elif git -C "$rig_path" rev-parse --verify --quiet "refs/heads/$default_branch" >/dev/null 2>&1; then
+        merge_ref="$default_branch"
+    fi
+    if [ -n "$merge_ref" ]; then
+        last_merge=$(git -C "$rig_path" log -1 --format='%ct' "$merge_ref" 2>/dev/null) || last_merge=0
+    fi
 fi
 [ -n "$last_merge" ] || last_merge=0
 age=$((NOW - last_merge))
 [ "$last_merge" -eq 0 ] && age=-1
 
-# unmerged_branches — count local feature branches NOT yet contained in the
-# default branch. Real backlog pressure: even a sub-threshold queue is a stall
-# if actual feature branches are waiting to merge. Cheap (one git call); 0 when
-# the repo/branch is unavailable. The default branch and detached/HEAD refs are
-# excluded.
+# unmerged_branches — count local feature branches NOT yet contained in
+# origin/<default>. EVIDENCE ONLY: this is reported in incident mail but does
+# NOT gate the stall. `git --no-contains` cannot detect squash-merges, and stale
+# / abandoned branches pile up on dev rigs forever, so a non-zero count here is
+# NOT proof of backlog — using it as a stall trigger produced chronic phantom
+# merge-stall alerts on idle rigs. The routed-bead queue is the only authority.
 unmerged_branches=0
-if [ -n "$rig_path" ] && [ -n "$default_branch" ] && [ -d "$rig_path/.git" ]; then
+if [ -n "$merge_ref" ]; then
     unmerged_branches=$(git -C "$rig_path" for-each-ref --format='%(refname:short)' \
-        --no-contains "$default_branch" refs/heads/ 2>/dev/null \
+        --no-contains "$merge_ref" refs/heads/ 2>/dev/null \
         | grep -vxF "$default_branch" | grep -c . 2>/dev/null) || unmerged_branches=0
 fi
 [ -n "$unmerged_branches" ] || unmerged_branches=0
 
-# A REAL backlog is queue depth at/above the threshold OR actual unmerged
-# feature branches. Below-threshold queue with no unmerged branches = quiet idle
-# rig, NOT a stall.
+# A REAL backlog is the routed merge queue at/above the threshold. Branch count
+# is deliberately excluded (see above). Below-threshold queue = quiet idle rig,
+# NOT a stall, no matter how many dead local branches linger.
 real_backlog=no
-if [ "$queue" -ge "$MIN_QUEUE" ] || [ "$unmerged_branches" -gt 0 ]; then
+if [ "$queue" -ge "$MIN_QUEUE" ]; then
     real_backlog=yes
 fi
 
-if is_dead_state "$refinery_state"; then
+if is_startup_state "$refinery_state" && ! startup_grace_exceeded "$RIG:refinery:dead" "$refinery_state"; then
+    : # refinery mid-startup within grace window — not an incident yet.
+elif is_dead_state "$refinery_state" || is_startup_state "$refinery_state"; then
     # Dead/crashed refinery is ALWAYS an incident — ungated by the backlog
     # threshold. A crashed refinery is never normal even with an empty queue.
     symptom="$refinery_state"
@@ -310,14 +416,15 @@ Evidence:
 
 Action: investigate / gc session reset $RIG/<refinery-alias>."
 elif [ "$real_backlog" = "yes" ] && { [ "$last_merge" -eq 0 ] || [ "$age" -ge "$FRESH_SECS" ]; }; then
-    # Stall: an alive-but-idle refinery sitting on a REAL backlog (queue at/above
-    # WATCHDOG_MIN_QUEUE, or actual unmerged feature branches) with no merge in
-    # the freshness window. A lone stale bead on a quiet dev rig fails the
-    # real_backlog test above and is correctly ignored.
+    # Stall: an alive-but-idle refinery sitting on a REAL routed-bead backlog
+    # (queue at/above WATCHDOG_MIN_QUEUE) with no merge to the merge target inside
+    # the freshness window. A sub-threshold queue on a quiet dev rig fails the
+    # real_backlog test above and is correctly ignored, no matter how many stale
+    # local branches exist.
     if [ "$last_merge" -eq 0 ]; then
-        mergeline="unknown (no commit found on '$default_branch')"
+        mergeline="unknown (no commit found on '${merge_ref:-$default_branch}')"
     else
-        mergeline="$((age / 60)) min ago (window: $FRESH_MIN min)"
+        mergeline="$((age / 60)) min ago on '$merge_ref' (window: $FRESH_MIN min)"
     fi
     escalate "$RIG:refinery:stall" \
         "[INCIDENT] rig $RIG: refinery merge-stall" \
@@ -335,13 +442,15 @@ The refinery is not draining the queue. Action: check the refinery session,
 its current verification, and the default-branch gate state."
 fi
 
-# Prune ledger keys for incidents that did NOT recur this tick (state cleared).
+# Prune ledger keys for incidents that did NOT recur this tick (streak cleared),
+# so first-seen grace anchors and cooldown clocks reset when a rig recovers.
+# Whole object values (c/t/f) are carried forward for surviving keys.
 PRUNED='{}'
 while IFS= read -r k; do
     [ -z "$k" ] && continue
     if [ -n "${SEEN_KEYS[$k]:-}" ]; then
-        v=$(printf '%s' "$COUNTS" | jq -r --arg k "$k" '.[$k] // 0' 2>/dev/null)
-        PRUNED=$(printf '%s' "$PRUNED" | jq --arg k "$k" --argjson v "${v:-0}" '.[$k] = $v' 2>/dev/null) || true
+        PRUNED=$(printf '%s' "$PRUNED" | jq --arg k "$k" --argjson src "$COUNTS" \
+            '.[$k] = ($src[$k] // {})' 2>/dev/null) || true
     fi
 done < <(printf '%s' "$COUNTS" | jq -r 'keys[]' 2>/dev/null)
 COUNTS="$PRUNED"
