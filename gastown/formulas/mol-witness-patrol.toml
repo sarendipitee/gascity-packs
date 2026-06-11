@@ -389,9 +389,27 @@ gc bd update <bead> --set-metadata recovered=true
 ```
 
 **Exit criteria:** All orphaned beads recovered, worktrees cleaned.
-Or no orphans found. Continue to `check-refinery` — do NOT exit the
-wisp here. The `next-iteration` step is the only place that pours the
-next wisp and burns this one."""
+Or no orphans found. **CRITICAL: do NOT exit, return, or stop here.**
+
+This step MUST continue to the next step. If you encounter an error
+(jq parsing failure, timeout, missing command, etc.), log it and continue
+anyway — do not let errors block the forward chain. The refinery queue
+health check, polecat health check, and wisp burning must all happen.
+
+If this step encounters an unrecoverable error, send a diagnostic mail
+to the mayor but then CONTINUE to `check-refinery` (do NOT exit):
+
+```bash
+# Example: if jq fails on session list
+if ! LIVENESS_MAP=$(jq ... 2>/dev/null); then
+  gc mail send mayor/ -s "WITNESS: recover-orphaned-beads jq error" -m "jq parsing failed; continuing patrol cycle anyway"
+  # Do NOT exit. Continue to next step.
+fi
+```
+
+Continuing to `check-refinery` — do NOT exit the wisp here. The
+`next-iteration` step is the only place that pours the next wisp and burns
+this one."""
 
 [[steps]]
 id = "check-refinery"
@@ -434,9 +452,12 @@ Recommendation: <what should happen>"
 ```
 
 **Exit criteria:** Queue health assessed; nudge sent or escalation
-filed if needed. Continue to `check-polecat-health` — do NOT exit the
-wisp here. The `next-iteration` step is the only place that pours the
-next wisp and burns this one."""
+filed if needed. **CRITICAL: do NOT exit, return, or stop here.**
+
+Any errors (beads missing, refinery session down, queue fetch failed) should
+be logged and escalated, but must NOT block continuation. Continue to
+`check-polecat-health` — do NOT exit the wisp here. The `next-iteration` step
+is the only place that pours the next wisp and burns this one."""
 
 [[steps]]
 id = "check-polecat-health"
@@ -491,9 +512,14 @@ system handles it. Only escalate if you see a pattern (many stuck
 polecats, systemic issue).
 
 **Exit criteria:** All active polecat work beads assessed. Warrants
-filed for stuck agents. Or no stuck polecats found. Continue to
-`next-iteration` — do NOT exit the wisp here. The `next-iteration` step
-is the only place that pours the next wisp and burns this one."""
+filed for stuck agents. Or no stuck polecats found. **CRITICAL: do NOT exit,
+return, or stop here.**
+
+Any errors (queries failing, warrant creation failing) should be logged and
+escalated but must NOT block continuation. This is the final step before
+next-iteration — the burn must happen. Continue to `next-iteration` — do
+NOT exit the wisp here. The `next-iteration` step is the only place that
+pours the next wisp and burns this one."""
 
 [[steps]]
 id = "next-iteration"
@@ -531,6 +557,7 @@ if [ -n "$CURRENT_WISP" ]; then
   echo "Found current wisp: $CURRENT_WISP (last updated $WISP_AGE)"
 fi
 ```
+
 **1. Context check:**
 
 If context feels heavy or RSS is high:
@@ -542,11 +569,33 @@ is already assigned — the new session resumes from context.
 
 **2. Pour next iteration BEFORE burning:**
 ```bash
-NEXT=$(gc bd mol wisp mol-witness-patrol --root-only --var binding_prefix='{{binding_prefix}}' --json | jq -r '.new_epic_id')
-gc bd update "$NEXT" --assignee=$GC_AGENT
+OPEN_WISPS=$(gc bd list --assignee="$GC_AGENT" --status=open --type=molecule --limit=0 --json | jq -r '.[].id')
+NEXT=$(printf '%s\n' $OPEN_WISPS | sed -n '1p')
+for extra in $(printf '%s\n' $OPEN_WISPS | sed '1d'); do
+  gc bd mol burn "$extra" --force
+done
+if [ -z "$NEXT" ]; then
+  NEXT=$(gc bd mol wisp mol-witness-patrol --root-only --var binding_prefix='{{binding_prefix}}' --json | jq -r '.new_epic_id // empty')
+  if [ -z "$NEXT" ]; then
+    echo "FAILED to pour next witness wisp — unable to proceed. Burning current wisp anyway as fail-safe."
+    gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
+    gc mail send mayor/ -s "WITNESS: Failed to pour next wisp [CRITICAL]" \
+      -m "gc bd mol wisp failed to generate a new wisp ID. Current wisp $CURRENT_WISP was burned. Investigate mol wisp command."
+    gc runtime drain-ack
+    exit 1
+  fi
+  if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then
+    echo "FAILED to assign next wisp — still burning current as fail-safe."
+    gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
+    gc mail send mayor/ -s "WITNESS: Failed to assign next wisp [CRITICAL]" \
+      -m "gc bd update to assign next wisp $NEXT failed. Current wisp $CURRENT_WISP was burned anyway. Investigate."
+    gc runtime drain-ack
+    exit 1
+  fi
+fi
 ```
 
-**3. Burn this wisp:**
+**3. Burn this wisp (do NOT skip even on error):**
 ```bash
 if [ -n "$CURRENT_WISP" ]; then
   if gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null; then
