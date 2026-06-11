@@ -40,6 +40,25 @@ gc sling gc.run-operator <convoy-id> --on implement \
   --var drain_policy=separate
 ```
 
+If part of the factory already ran, launch the targetless continuation
+entrypoint that matches the artifacts you already have:
+
+```sh
+gc sling gc.run-operator build-from-decompose --formula \
+  --var artifact_root=<artifact-dir> \
+  --var requirements_path=<artifact-dir>/requirements.md \
+  --var plan_path=<artifact-dir>/implementation-plan.md \
+  --var plan_review_path=<artifact-dir>/plan-review.md \
+  --var drain_policy=separate
+```
+
+Use `build-from-plan` when requirements already exist, `build-from-decompose`
+when approved requirements/plan/plan-review already exist, `build-from-convoy`
+when an implementation convoy already exists, and `build-from-review` when
+implementation evidence already exists. Use `implement` when you want the
+lower-level direct implementation-convoy launcher without the build review and
+publish suffix.
+
 Every formula in this pack uses `contract = "graph.v2"`. Targeted formulas take
 the core-injected reserved convoy target; they do not declare `issue`,
 `bead_id`, or `convoy_id` variables. `drain_policy=separate` is the standalone
@@ -97,14 +116,30 @@ create-beads, implementation, post-implementation review, and publish helpers.
 Gap-analysis is a review lens inside the post-implementation review loop, so
 coverage findings are synthesized and fixed with the rest of the review output.
 
+Continuation bases are nested suffixes. Each base validates its prerequisite
+inputs, performs one stage or handoff, and delegates to the next suffix:
+
+```text
+build-from-requirements-base
+  -> build-from-plan-base
+  -> build-from-decompose-base
+  -> build-from-convoy-base
+  -> build-from-review-base
+```
+
+The cataloged `build-from-*` formulas are thin default Gas City wrappers around
+those bases. Methodology packs that want the same entrypoints should extend the
+matching `build-from-*-base` formula and override selector defaults, routes,
+drain item formulas, or review expansions instead of copying the suffix graph.
+
 Third-party methodology packs can extend `build-base` and override only the
 stages they need. For implementation, packs should keep the Gas City drain
 lifecycle and point the two static drain steps at pack-specific item formulas
 that extend `do-work` and `do-work-item`. The repository currently ships
-concrete vendored implementations for Compound Engineering, Superpowers, and
-BMAD Method. Those packs import this pack as `gc` internally, so users can
-import one methodology pack at city scope while keeping the existing `gc.*`
-role override surface for rig agents.
+concrete vendored implementations for Compound Engineering, Superpowers, BMAD
+Method, and garrytan/gstack. Those packs import this pack as `gc` internally,
+so users can import one methodology pack at city scope while keeping the
+existing `gc.*` role override surface for rig agents.
 
 Third-party packs should treat upstream agent definitions, prompts, and skills
 as vendored methodology inputs, not as runtime authority. When an upstream
@@ -113,6 +148,41 @@ command, the pack should convert that shape into a Gas City formula or expansion
 with explicit `gc.*` lanes. The model may read the upstream persona or prompt
 file for behavior, but work routing, retries, persistence, and fanout/fanin must
 remain in the Gas City graph.
+
+Raw-framework subagents become Gas City fanouts. That is the core rule for
+methodology packs: preserve the user-visible process, reviewer perspective, and
+handoff order, but make the routing durable through beads, drains, formulas, and
+expansion children. Structured step-file prompts are usually good candidates for
+separate formulas or expansion loops because Gas City can then retry, observe,
+and resume each step independently.
+
+Use two mode concepts when designing or launching methodology formulas:
+
+- `interaction_mode` controls human participation in planning and gates.
+  `interactive` preserves blocking questions and approval menus, `autonomous`
+  lets the workflow make reasonable decisions while recording evidence, and
+  `headless` is for automation with no blocking prompts.
+- `review_mode` controls review authority. `report` is read-only output for
+  adapters such as GitHub PR comments, `agent` is a structured machine handoff
+  whose caller applies fixes, and `interactive` preserves a raw top-level review
+  experience that may apply safe fixes when the methodology allows it.
+
+The current cross-framework audit and follow-up proposal lives in
+[`docs/design/build-methodology-framework-audit.md`](../docs/design/build-methodology-framework-audit.md).
+
+## Requirements Ledgers
+
+This base pack keeps product requirements beside the formula implementation:
+
+- `REQUIREMENTS.md` defines the build methodology base contract and the default
+  `build-basic` implementation expectations.
+- `formulas/REQUIREMENTS.md` contains one durable behavior row for every base
+  pack formula.
+
+When a base formula's stage order, selector variables, drain behavior, artifact
+contract, fanout/fanin, review loop, adapter side effect, or catalog surface
+changes, update the matching requirements row in the same change. The formula
+asset tests fail if a formula exists without a requirements row.
 
 ## Build Flow
 

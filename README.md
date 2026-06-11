@@ -52,6 +52,19 @@ Browse the tree for the current set; each pack has its own README.
 
 ### Build methodology packs
 
+Raw-framework subagents become Gas City fanouts. The vendored methodology text
+is treated as source material for behavior, not runtime authority: if a raw
+skill says to spawn a subagent, dispatch a task tool, or invoke a plugin
+command, the pack should model that work as formula steps, expansion children,
+drains, or fanout/fanin lanes.
+
+Use two mode concepts when comparing methodology packs:
+
+- `interaction_mode` describes human participation in planning and gates:
+  interactive, autonomous, or headless.
+- `review_mode` describes whether review is report-only, machine handoff, or
+  an interactive top-level review that may apply safe fixes.
+
 - [gascity](./gascity) provides the `build-base` workflow contract and the
   default `build-basic` implementation.
 - [compound-engineering](./compound-engineering) imports `gascity` as `gc`
@@ -62,6 +75,12 @@ Browse the tree for the current set; each pack has its own README.
   development/review expansions.
 - [bmad](./bmad) imports `gascity` as `gc` and implements `build-base` with
   vendored BMAD Method skills and Gas City-native story/review expansions.
+- [gstack](./gstack) imports `gascity` as `gc` and implements `build-base`
+  with vendored garrytan/gstack office-hours, autoplan, review, QA, security,
+  documentation, and release-readiness skills mapped to Gas City fanouts.
+
+See the [build methodology framework audit](./docs/design/build-methodology-framework-audit.md)
+for the current parity assessment and proposed beginner-friendly updates.
 
 ### Slack packs (tiered)
 

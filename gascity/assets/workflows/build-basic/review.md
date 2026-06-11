@@ -1,9 +1,9 @@
-Use the built-in Gas City post-implementation review loop.
+Use the built-in Gas City starter factory post-implementation review loop.
 
-Run gap-analysis as one review lens alongside implementation review. Verify
-requirements coverage, plan/decomposition coverage, changed files, and test
-evidence in the same loop that synthesizes review findings and applies required
-fixes.
+The `build-basic-review` expansion has already created three review lanes:
+acceptance/correctness, test evidence, and simplicity/maintainability. Record
+that this starter factory review fanout is active, then let the expansion own
+review synthesis, required fixes, and the final `code_review.verdict`.
 
 Record the synthesized review report path and pass/fail outcome on the workflow
 root bead.
