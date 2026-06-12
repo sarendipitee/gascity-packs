@@ -619,9 +619,31 @@ the next wisp is already assigned and the restarted session resumes from it.
 
 **Safety mechanism — ALWAYS burn before exiting:**
 
-Before doing anything else in this step, resolve the current wisp ID. If you
-cannot determine it, escalate and exit (do not pour — fail-safe).
+Before doing anything else in this step:
 
+**0a. Check drain first — if draining, skip the pour and exit cleanly:**
+```bash
+if gc runtime drain-check 2>/dev/null; then
+  echo "Drain signal received — honoring without pour."
+  # Best-effort burn of current wisp so the molecule doesn't stay open.
+  DRAIN_WISP=${GC_BEAD_ID:-}
+  if [ -z "$DRAIN_WISP" ]; then
+    DRAIN_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json --limit=1 2>/dev/null | jq -r '.[0].id // empty')
+  fi
+  if [ -z "$DRAIN_WISP" ]; then
+    DRAIN_WISP=$(gc bd list --assignee="$GC_AGENT" --status=open --json --limit=1 2>/dev/null | jq -r '.[0].id // empty')
+  fi
+  if [ -n "$DRAIN_WISP" ]; then
+    gc bd mol burn "$DRAIN_WISP" --force 2>/dev/null && echo "Burned $DRAIN_WISP on drain." || echo "WARNING: burn failed for $DRAIN_WISP on drain."
+  else
+    echo "No wisp to burn on drain."
+  fi
+  gc runtime drain-ack
+  exit 0
+fi
+```
+
+**0b. Resolve the current wisp ID. If you cannot determine it, attempt burn-by-query before escalating:**
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
 if [ -z "$CURRENT_WISP" ]; then
@@ -634,9 +656,23 @@ if [ -z "$CURRENT_WISP" ]; then
 fi
 
 if [ -z "$CURRENT_WISP" ]; then
+  echo "Cannot resolve current wisp via env/list — attempting burn-by-query."
+  # Burn-by-query: find any open mol-witness-patrol wisp molecule assigned to this agent.
+  CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=in_progress' --limit=0 2>/dev/null | \
+    jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee == $agent)] | .[0].id // empty' 2>/dev/null)
+  if [ -z "$CURRENT_WISP" ]; then
+    CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=open' --limit=0 2>/dev/null | \
+      jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee == $agent)] | .[0].id // empty' 2>/dev/null)
+  fi
+  if [ -n "$CURRENT_WISP" ]; then
+    echo "Burn-by-query found wisp: $CURRENT_WISP — burning and exiting cleanly."
+    gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null && echo "Burned $CURRENT_WISP." || echo "WARNING: burn-by-query burn failed for $CURRENT_WISP."
+    gc runtime drain-ack
+    exit 0
+  fi
   echo "CRITICAL: Cannot resolve current witness wisp — refusing to pour without a burn target."
   gc mail send mayor/ -s "WITNESS: Cannot resolve current wisp for burning [CRITICAL]" \
-    -m "The witness patrol loop reached next-iteration but could not identify the current wisp ID to burn. This prevents the pour-and-burn cycle from completing. Check: (1) GC_BEAD_ID environment variable; (2) witness session's assigned wisps; (3) gc bd list output."
+    -m "The witness patrol loop reached next-iteration but could not identify the current wisp ID to burn (tried env, list, and burn-by-query). Check: (1) GC_BEAD_ID environment variable; (2) witness session's assigned wisps; (3) gc bd list/query output."
   gc runtime drain-ack
   exit 1
 fi
