@@ -461,6 +461,8 @@ fi
 
 block_existing_pr() {
   reason="$1"
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc bd update $WORK \
     --assignee="" \
     --set-metadata merge_result=blocked \
@@ -541,6 +543,8 @@ halt_false_completion() {
   # polecat) instead of masking it.
   fc_branch="$1"
   fc_base="$2"
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc bd update $WORK \
     --status=blocked \
     --assignee="" \
@@ -664,6 +668,8 @@ if [ "$MERGE_STRATEGY" = "mr" ] && [ -n "$EXISTING_PR" ]; then
   if [ -z "$ORIGIN_REPO" ]; then
     [ -n "$ORIGIN_REPO_ERROR" ] && echo "$ORIGIN_REPO_ERROR"
     echo "Could not resolve origin repository for existing PR validation. STOP. Debug and retry without mutating bead state."
+    git checkout "${TARGET:-main}" 2>/dev/null || true
+    git branch -D temp 2>/dev/null || true
     gc runtime drain-ack
     exit 1
   fi
@@ -682,6 +688,8 @@ if [ "$MERGE_STRATEGY" = "mr" ] && [ -n "$EXISTING_PR" ]; then
     fi
     echo "Could not resolve existing PR $EXISTING_PR. STOP. Debug and retry without mutating bead state."
     [ -n "$EXISTING_PR_ERROR" ] && echo "$EXISTING_PR_ERROR"
+    git checkout "${TARGET:-main}" 2>/dev/null || true
+    git branch -D temp 2>/dev/null || true
     gc runtime drain-ack
     exit 1
   fi
@@ -713,6 +721,8 @@ fi
 if [ "$MERGE_STRATEGY" = "mr" ] && [ -z "$ORIGIN_REPO" ]; then
   [ -n "$ORIGIN_REPO_ERROR" ] && echo "$ORIGIN_REPO_ERROR"
   echo "Could not resolve origin repository for pull-request handoff. STOP. Debug and retry without mutating bead state."
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc runtime drain-ack
   exit 1
 fi
@@ -769,10 +779,13 @@ gc bd close $WORK --reason "Merged to $TARGET at $MERGED_SHORT"
 ```
 
 **4. Cleanup:**
+
+Both operations are idempotent — deleting an already-gone branch is a no-op. Run them unconditionally; cleanup errors do NOT block completion since the merge already landed.
 ```bash
-git branch -d temp
+git checkout $TARGET
+git branch -D temp 2>/dev/null || true
+git push origin --delete $BRANCH 2>/dev/null || true
 ```
-If delete_merged_branches = "true": `git push origin --delete $BRANCH`
 
 **If MERGE_STRATEGY = "mr":**
 
@@ -858,6 +871,8 @@ else
     if ! init_github_rest 2>"$PR_ERR"; then
       cat "$PR_ERR"
       rm -f "$PR_ERR"
+      git checkout "${TARGET:-main}" 2>/dev/null || true
+      git branch -D temp 2>/dev/null || true
       gc runtime drain-ack
       exit 1
     fi
@@ -872,6 +887,8 @@ else
       echo "GitHub API request failed while checking for an existing PR for $BRANCH."
       [ -n "$PR_ERROR" ] && echo "$PR_ERROR"
       rm -f "$PR_ERR"
+      git checkout "${TARGET:-main}" 2>/dev/null || true
+      git branch -D temp 2>/dev/null || true
       gc runtime drain-ack
       exit 1
     fi
@@ -892,6 +909,8 @@ else
         echo "GitHub API request failed while creating a PR for $BRANCH."
         [ -n "$PR_ERROR" ] && echo "$PR_ERROR"
         rm -f "$PR_ERR"
+        git checkout "${TARGET:-main}" 2>/dev/null || true
+        git branch -D temp 2>/dev/null || true
         gc runtime drain-ack
         exit 1
       fi
@@ -899,6 +918,8 @@ else
       if [ -z "$PR_NUMBER" ]; then
         echo "GitHub API response did not include a pull request number."
         rm -f "$PR_ERR"
+        git checkout "${TARGET:-main}" 2>/dev/null || true
+        git branch -D temp 2>/dev/null || true
         gc runtime drain-ack
         exit 1
       fi
@@ -910,6 +931,8 @@ else
     if [ "$PR_STATUS" -ne 0 ]; then
       echo "GitHub API request failed while reading PR $PR_NUMBER."
       [ -n "$PR_ERROR" ] && echo "$PR_ERROR"
+      git checkout "${TARGET:-main}" 2>/dev/null || true
+      git branch -D temp 2>/dev/null || true
       gc runtime drain-ack
       exit 1
     fi
@@ -934,6 +957,8 @@ if [ "$PR_STATUS" -ne 0 ] || [ -z "$PR_INFO" ]; then
   fi
   echo "Pull request $PR_REF was not found."
   [ -n "$PR_ERROR" ] && echo "$PR_ERROR"
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc runtime drain-ack
   exit 1
 fi
@@ -950,6 +975,8 @@ if [ "$PR_STATE" != "OPEN" ]; then
     block_existing_pr "Existing PR $EXISTING_PR is $PR_STATE, want OPEN."
   fi
   echo "Pull request $PR_REF is $PR_STATE, want OPEN."
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc runtime drain-ack
   exit 1
 fi
@@ -958,6 +985,8 @@ if [ "$PR_HEAD" != "$BRANCH" ]; then
     block_existing_pr "Existing PR $EXISTING_PR targets branch $PR_HEAD, want $BRANCH."
   fi
   echo "Pull request $PR_REF targets branch $PR_HEAD, want $BRANCH."
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc runtime drain-ack
   exit 1
 fi
@@ -966,6 +995,8 @@ if [ "$PR_BASE" != "$TARGET" ]; then
     block_existing_pr "Existing PR $EXISTING_PR targets base $PR_BASE, want $TARGET."
   fi
   echo "Pull request $PR_REF targets base $PR_BASE, want $TARGET."
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc runtime drain-ack
   exit 1
 fi
@@ -974,6 +1005,8 @@ if [ "$PR_REPO" != "$ORIGIN_REPO" ]; then
     block_existing_pr "Existing PR $EXISTING_PR belongs to repo $PR_REPO, want $ORIGIN_REPO."
   fi
   echo "Pull request $PR_REF belongs to repo $PR_REPO, want $ORIGIN_REPO."
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc runtime drain-ack
   exit 1
 fi
@@ -982,6 +1015,8 @@ if [ "$PR_HEAD_REPO" != "$ORIGIN_REPO" ]; then
     block_existing_pr "Existing PR $EXISTING_PR head repo $PR_HEAD_REPO, want $ORIGIN_REPO."
   fi
   echo "Pull request $PR_REF head repo $PR_HEAD_REPO, want $ORIGIN_REPO."
+  git checkout "${TARGET:-main}" 2>/dev/null || true
+  git branch -D temp 2>/dev/null || true
   gc runtime drain-ack
   exit 1
 fi
