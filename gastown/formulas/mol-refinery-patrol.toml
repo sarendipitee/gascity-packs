@@ -239,12 +239,13 @@ gc workflow delete-source $WORK --apply && gc workflow reopen-source $WORK
 
    Run this as a SINGLE atomic `gc bd update` EXACTLY as written — do not
    paraphrase, shorten, split, or drop any line (the routing must stay welded
-   to the reject so it cannot be separated):
+   to the reject so it cannot be separated). Set routing FIRST with --priority=1
+   to prevent starvation, verify it, THEN set rejection_reason:
 ```bash
 gc bd update $WORK \
   --status=open \
   --assignee="" \
-  --set-metadata rejection_reason="Conflicts with $TARGET at $(git rev-parse origin/$TARGET)" \
+  --priority=1 \
   --set-metadata gc.routed_to="${GC_RIG:+$GC_RIG/}{{binding_prefix}}polecat"
 ```
 
@@ -255,6 +256,12 @@ gc bd show $WORK --json | jq -r '.[0].metadata."gc.routed_to"'
    This MUST print the polecat pool target (e.g. `<rig>/{{binding_prefix}}polecat`),
    NOT the refinery. If it shows the refinery (or empty), the routing was
    dropped — re-run the `gc bd update` above before continuing.
+
+   **Only after verifying routing landed**, set the rejection reason:
+```bash
+gc bd update $WORK \
+  --set-metadata rejection_reason="Conflicts with $TARGET at $(git rev-parse origin/$TARGET)"
+```
 4. Do NOT delete the branch (new polecat needs it for conflict resolution).
 5. Clean up temp branch: `git checkout {{target_branch}} && git branch -D temp`
 6. Pour next patrol iteration before burning:
@@ -359,12 +366,13 @@ TARGET=$(gc bd show $WORK --json | jq -r '.[0].metadata.target // "{{target_bran
 
      Run this as a SINGLE atomic `gc bd update` EXACTLY as written — do not
      paraphrase, shorten, split, or drop any line (the routing must stay welded
-     to the reject so it cannot be separated):
+     to the reject so it cannot be separated). Set routing FIRST with --priority=1
+     to prevent starvation, verify it, THEN set rejection_reason:
      ```bash
      gc bd update $WORK \
        --status=open \
        --assignee="" \
-       --set-metadata rejection_reason="<failure summary>" \
+       --priority=1 \
        --set-metadata gc.routed_to="${GC_RIG:+$GC_RIG/}{{binding_prefix}}polecat"
      ```
    - VERIFY the routing landed on the polecat pool, not the refinery:
@@ -375,6 +383,12 @@ TARGET=$(gc bd show $WORK --json | jq -r '.[0].metadata.target // "{{target_bran
      `<rig>/{{binding_prefix}}polecat`), NOT the refinery. If it shows the
      refinery (or empty), the routing was dropped — re-run the `gc bd update`
      above before continuing.
+
+     **Only after verifying routing landed**, set the rejection reason:
+     ```bash
+     gc bd update $WORK \
+       --set-metadata rejection_reason="<failure summary>"
+     ```
    - Delete branch: `git push origin --delete $BRANCH`
    - Clean up: `git checkout "$TARGET" && git branch -D temp`
    - Pour next patrol iteration before burning:
