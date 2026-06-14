@@ -1401,7 +1401,7 @@ def list_beads(gc_bin: str, workspace: GateWorkspace, *, env: Mapping[str, str])
         if isinstance(payload, list):
             beads = [item for item in payload if isinstance(item, dict)]
             if beads:
-                return beads
+                return append_event_route_history(beads, workspace)
             event_beads = list_beads_from_event_log(workspace)
             if event_beads:
                 return event_beads
@@ -1450,6 +1450,43 @@ def list_beads_from_event_log(workspace: GateWorkspace) -> list[dict[str, Any]]:
         if isinstance(bead_id, str) and bead_id:
             beads[bead_id] = bead
     return list(beads.values())
+
+
+def append_event_route_history(beads: Sequence[dict[str, Any]], workspace: GateWorkspace) -> list[dict[str, Any]]:
+    routes = event_route_history_targets(workspace)
+    if not routes:
+        return list(beads)
+    return [
+        *beads,
+        {
+            "id": "__gc_event_route_history__",
+            "title": "__gc_event_route_history__",
+            "status": "closed",
+            "metadata": {"gc.event.routed_to": routes},
+        },
+    ]
+
+
+def event_route_history_targets(workspace: GateWorkspace) -> list[str]:
+    path = workspace.city_dir / ".gc" / "events.jsonl"
+    if not path.is_file():
+        return []
+
+    routes: list[str] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        bead = payload.get("bead")
+        if isinstance(bead, dict):
+            routes.extend(bead_route_targets(bead))
+    return dedupe_strings(routes)
 
 
 def find_unique_bead_by_title(beads: Sequence[Mapping[str, Any]], title: str) -> Mapping[str, Any] | None:
@@ -1818,16 +1855,22 @@ def bead_route_targets(bead: Mapping[str, Any]) -> list[str]:
 
 
 def route_metadata_key(key: str) -> bool:
-    return key in {
-        "gc.run_target",
-        "gc.routed_to",
-        "gc.target",
-        "gc.assignee",
-        "run_target",
-        "routed_to",
-        "target",
-        "assignee",
-    } or key.endswith(".run_target") or key.endswith(".routed_to")
+    return (
+        key in {
+            "gc.run_target",
+            "gc.routed_to",
+            "gc.target",
+            "gc.assignee",
+            "run_target",
+            "routed_to",
+            "target",
+            "assignee",
+        }
+        or key.endswith(".run_target")
+        or key.endswith(".routed_to")
+        or key.endswith("_run_target")
+        or key.endswith("_routed_to")
+    )
 
 
 def string_values(value: Any) -> list[str]:
