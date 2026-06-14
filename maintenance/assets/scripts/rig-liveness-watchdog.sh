@@ -32,6 +32,12 @@
 #   WATCHDOG_REALERT_TICKS re-alert cadence for a live incident (default: 5)
 set -euo pipefail
 
+# Requires bash 4+ for associative arrays (declare -A).
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+    echo "rig-liveness-watchdog: requires bash 4 or later (found ${BASH_VERSION:-unknown})" >&2
+    exit 1
+fi
+
 # Trace bd/gc invocations to $GC_BD_TRACE_JSON when set (no-op otherwise).
 __SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -62,7 +68,7 @@ SESSIONS_JQ='(.sessions? // .) | if type == "array" then . else [] end'
 # recover on its own.
 is_dead_state() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
-        crashed|creating|failed-create|failed_create|closed|"") return 0 ;;
+        absent|crashed|creating|failed-create|failed_create|closed|"") return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -119,8 +125,7 @@ while IFS=$'\t' read -r rig rig_path default_branch; do
 
     # --- Check 1: witness must be alive (it never legitimately sleeps off). ---
     if is_dead_state "$witness_state"; then
-        symptom="$witness_state"
-        [ "$symptom" = "" ] && symptom="missing"
+        symptom="${witness_state:-missing}"
         escalate "$rig:witness:dead" \
             "[INCIDENT] rig $rig: witness $symptom" \
             "Watchdog tick $(date -u +%Y-%m-%dT%H:%M:%SZ): the witness session for rig '$rig' is $symptom.
@@ -156,8 +161,7 @@ Action: gc session reset $rig/<witness-alias>  (or respawn the rig witness)."
     [ "$last_merge" -eq 0 ] && age=-1
 
     if is_dead_state "$refinery_state"; then
-        symptom="$refinery_state"
-        [ "$symptom" = "" ] && symptom="missing"
+        symptom="${refinery_state:-missing}"
         escalate "$rig:refinery:dead" \
             "[INCIDENT] rig $rig: refinery $symptom" \
             "Watchdog tick $(date -u +%Y-%m-%dT%H:%M:%SZ): the refinery session for rig '$rig' is $symptom.
@@ -201,8 +205,11 @@ PRUNED='{}'
 while IFS= read -r k; do
     [ -z "$k" ] && continue
     if [ -n "${SEEN_KEYS[$k]:-}" ]; then
-        v=$(printf '%s' "$COUNTS" | jq -r --arg k "$k" '.[$k] // 0' 2>/dev/null)
-        PRUNED=$(printf '%s' "$PRUNED" | jq --arg k "$k" --argjson v "${v:-0}" '.[$k] = $v' 2>/dev/null) || true
+        v=$(printf '%s' "$COUNTS" | jq -r --arg k "$k" '.[$k] // 0' 2>/dev/null) || v=0
+        PRUNED=$(printf '%s' "$PRUNED" | jq --arg k "$k" --argjson v "${v:-0}" '.[$k] = $v' 2>/dev/null) || {
+            echo "rig-liveness-watchdog: ledger prune failed for key '$k'; skipping ledger write" >&2
+            exit 1
+        }
     fi
 done < <(printf '%s' "$COUNTS" | jq -r 'keys[]' 2>/dev/null)
 COUNTS="$PRUNED"
