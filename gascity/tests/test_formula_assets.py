@@ -272,7 +272,7 @@ BUILD_ARTIFACT_VALIDATION_GATES = {
     ("build-basic", "requirements"): REQUIREMENTS_GATE,
     ("build-basic", "plan"): PLAN_GATE,
     ("build-basic", "decompose"): DECOMPOSITION_GATE,
-    ("build-basic", "review"): BUILD_REVIEW_GATE,
+    ("build-basic-review", "{target}"): BUILD_REVIEW_GATE,
     ("build-basic", "finalize"): FINAL_REPORT_GATE,
     ("build-from-requirements-base", "requirements"): REQUIREMENTS_GATE,
     ("build-from-plan-base", "plan"): PLAN_GATE,
@@ -1032,6 +1032,15 @@ class FormulaAssetTests(unittest.TestCase):
             "gc.blocked_reason",
             "gc.failure_class=methodology_incompatible",
             "never ask questions",
+            "derive the running formula from the claimed step bead's `gc.step_ref`",
+            "gc formula show <running-formula> --json",
+            "Do not inspect pack source directories",
+            ".beads/config.yaml",
+            "Close commands do not accept metadata flags",
+            "bd update <claimed-step-id> --set-metadata 'gc.outcome=pass'",
+            "bd close <claimed-step-id> --reason",
+            "Do not pass `--set-metadata` or `--metadata` to `bd close`",
+            "do not use\n`gc.outcome=success`",
         ):
             with self.subTest(asset="build-base/prepare.md", fragment=fragment):
                 self.assertIn(fragment, prepare)
@@ -1331,6 +1340,7 @@ class FormulaAssetTests(unittest.TestCase):
                 "implementation_target": "{{implementation_target}}",
             },
         )
+        self.assertNotIn("check", review_step)
         text = effective_formula_text(root, "build-basic")
         for fragment in (
             "generate-requirements",
@@ -1352,6 +1362,10 @@ class FormulaAssetTests(unittest.TestCase):
             "implementation convoy",
             "workflow root bead",
             "before closing",
+            "gc convoy create <name> <work-item-id...> --json",
+            "Do not create an empty convoy",
+            "Do not call `gc convoy add` for newly-created beads",
+            "Do not call `bd show <implementation-convoy-id>`",
         ):
             with self.subTest(step="decompose", fragment=fragment):
                 self.assertIn(fragment, decompose_description)
@@ -1426,6 +1440,8 @@ class FormulaAssetTests(unittest.TestCase):
             "task boundaries",
             "test commands",
             "risk",
+            "gc.build.plan_review_report_path",
+            "Do not write or overwrite\n`gc.build.review_report_path`",
         ):
             with self.subTest(asset="plan-review", fragment=fragment):
                 self.assertIn(fragment, plan_review_text)
@@ -1436,11 +1452,14 @@ class FormulaAssetTests(unittest.TestCase):
         ):
             text = (root / relative_path).read_text(encoding="utf-8")
             for fragment in (
-                "intended behavior",
+                "`## Summary`",
+                "`## Intended Behavior`",
+                "`## Changed Files`",
+                "`## Verification`",
+                "`## Remaining Risks`",
                 "first verification command",
-                "changed files",
-                "proof command",
-                "remaining risks",
+                "final proof command",
+                "observed pass/fail result",
             ):
                 with self.subTest(asset=relative_path, fragment=fragment):
                     self.assertIn(fragment, text)
@@ -1451,9 +1470,114 @@ class FormulaAssetTests(unittest.TestCase):
             "methodology",
             "review lanes",
             "next human action",
+            "canonical implementation summary",
+            "`gc.build.implementation_summary_path`",
+            "`implementation-summary.md`",
+            "`gc.build.implementation-summary.v1`",
         ):
             with self.subTest(asset="finalize", fragment=fragment):
                 self.assertIn(fragment, finalize_text)
+
+        for relative_path in (
+            "assets/workflows/build-basic/requirements.md",
+            "assets/workflows/build-basic/plan.md",
+            "assets/workflows/build-basic/decompose.md",
+            "assets/workflows/build-basic/finalize.md",
+            "assets/workflows/build-basic-review/{target}.md",
+            "assets/workflows/do-work/implement.md",
+            "assets/workflows/do-work-item/implement-item.md",
+        ):
+            text = (root / relative_path).read_text(encoding="utf-8")
+            for fragment in (
+                "Use mapping objects for front matter",
+                "`workflow: build-basic`",
+                "workflow: {id: <workflow-root-id>",
+                "Trace front matter must use the validator shape exactly",
+                "`trace.upstream[]` entries must include `path` and `hash`",
+                "do not use\n  `id`/`title`/`type` entries as the upstream shape",
+                "scheme-qualified",
+                "Markdown coverage table with the same status",
+                "The validator only recognizes",
+                "| ID | Status |",
+                "Coverage statuses are not artifact statuses",
+                "do not use `approved` in `trace.coverage[].status`",
+            ):
+                with self.subTest(asset=relative_path, fragment=fragment):
+                    self.assertIn(fragment, text)
+
+        for relative_path in (
+            "assets/workflows/do-work/implement.md",
+            "assets/workflows/do-work-item/implement-item.md",
+            "assets/workflows/implement/summarize.md",
+        ):
+            text = (root / relative_path).read_text(encoding="utf-8")
+            for fragment in (
+                "validator only recognizes a table",
+                "an `ID` column",
+                "a `Status` column",
+                "| ID | Status |",
+            ):
+                with self.subTest(asset=relative_path, fragment=fragment):
+                    self.assertIn(fragment, text)
+
+        for relative_path in (
+            "assets/workflows/do-work/implement.md",
+            "assets/workflows/do-work-item/implement-item.md",
+            "assets/workflows/implementation-base/implement.md",
+            "assets/workflows/implementation-item-base/implement-item.md",
+            "assets/workflows/implement/summarize.md",
+        ):
+            text = (root / relative_path).read_text(encoding="utf-8")
+            for fragment in (
+                "read the launcher rig root from the workflow root bead's `gc.work_dir`",
+                "GC_BEAD_ID=<claimed-step-id> .gc/scripts/checks/build-artifact-valid.sh",
+                "fix every reported validation error before setting `gc.outcome=pass`",
+            ):
+                with self.subTest(asset=relative_path, fragment=fragment):
+                    self.assertIn(fragment, text)
+
+    def test_build_artifact_prompts_use_set_metadata_for_paths(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        path_contracts = {
+            "assets/workflows/build-base/requirements.md": ["gc.build.requirements_path"],
+            "assets/workflows/build-base/plan.md": ["gc.build.plan_path"],
+            "assets/workflows/build-base/decompose.md": ["gc.build.decomposition_path"],
+            "assets/workflows/build-base/review.md": ["gc.build.review_report_path"],
+            "assets/workflows/build-base/finalize.md": ["gc.build.final_report_path"],
+            "assets/workflows/build-basic/requirements.md": ["gc.build.requirements_path"],
+            "assets/workflows/build-basic/plan.md": ["gc.build.plan_path"],
+            "assets/workflows/build-basic/decompose.md": ["gc.build.decomposition_path"],
+            "assets/workflows/build-basic/review.md": ["gc.build.review_report_path"],
+            "assets/workflows/build-basic/finalize.md": [
+                "gc.build.implementation_summary_path",
+                "gc.build.final_report_path",
+                "gc.build.factory_run_path",
+            ],
+            "assets/workflows/build-basic-review/{target}.md": ["gc.build.review_report_path"],
+        }
+
+        for relative_path, keys in path_contracts.items():
+            text = (root / relative_path).read_text(encoding="utf-8")
+            with self.subTest(asset=relative_path, fragment="metadata warning"):
+                self.assertIn("Do not use `bd update --metadata 'key=value'`", text)
+            for fragment in (
+                'bd update "<claimed-step-id>" --set-metadata "gc.outcome=pass"',
+                'bd close "<claimed-step-id>" --reason "<concise reason>"',
+                "Do not pass\n`--metadata` or `--set-metadata` to `bd close`",
+            ):
+                with self.subTest(asset=relative_path, fragment=fragment):
+                    self.assertIn(fragment, text)
+            positive_guidance = "\n".join(
+                line for line in text.splitlines() if "Do not use" not in line
+            )
+            self.assertIsNone(
+                re.search(r"bd update[^`\n]*--metadata ['\"]?[A-Za-z0-9_.-]+=", positive_guidance),
+                relative_path,
+            )
+            for key in keys:
+                with self.subTest(asset=relative_path, key=key):
+                    self.assertIn("--set-metadata", text)
+                    self.assertIn(f"{key}=<", text)
 
     def test_third_party_build_packs_extend_base_and_vendor_sources(self) -> None:
         gascity_root = pathlib.Path(__file__).resolve().parents[1]
@@ -2579,6 +2703,30 @@ class FormulaAssetTests(unittest.TestCase):
                 with self.subTest(path=path.relative_to(packs_root), fragment=fragment):
                     self.assertNotIn(fragment, text)
 
+    def test_targeted_formulas_consume_graphv2_input_convoy(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+        targeted_formulas = {
+            "design-review",
+            "do-work",
+            "do-work-item",
+            "fix-convoy",
+            "implement",
+            "same-session-implement",
+        }
+
+        for name in sorted(targeted_formulas):
+            with self.subTest(formula=name):
+                data = tomllib.loads((root / "formulas" / f"{name}.formula.toml").read_text(encoding="utf-8"))
+                self.assertTrue(data.get("target_required"), f"{name} should reject targetless launches")
+                self.assertIn("{{convoy_id}}", effective_formula_text(root, name))
+
+    def test_graphv2_formula_text_avoids_legacy_source_workflow_root_key(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[1]
+
+        for name in FORMULAS:
+            with self.subTest(formula=name):
+                self.assertNotIn("gc.source_bead_id", effective_formula_text(root, name))
+
     def test_formula_node_descriptions_delegate_to_shadowable_assets(self) -> None:
         root = pathlib.Path(__file__).resolve().parents[1]
         for formula_path in sorted((root / "formulas").glob("*.formula.toml")):
@@ -2602,6 +2750,7 @@ class FormulaAssetTests(unittest.TestCase):
         self.assertNotIn("hard_target", data["vars"])
         self.assertNotIn("worker_target", data["vars"])
         self.assertEqual(data["vars"]["implementation_target"]["default"], "gc.implementation-worker")
+        self.assertEqual(data["sling_container_mode"], "source")
 
         step_ids = [step["id"] for step in data["steps"]]
         self.assertEqual(
@@ -2667,6 +2816,12 @@ class FormulaAssetTests(unittest.TestCase):
             "Do not edit source files in the launcher checkout",
             "Do not create, modify, or commit source code",
             "Do not run implementation or test-fix loops",
+            "CLAIMED_BEAD_ID",
+            "gc.root_bead_id",
+            "gc.input_convoy_id",
+            "validate that input bead is a convoy",
+            "do not search repo, plan, report, artifact, session-log, or runtime files",
+            "hard-fail if metadata is missing",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, node_description(root, prepare))
@@ -2702,6 +2857,9 @@ class FormulaAssetTests(unittest.TestCase):
             "gc.input_convoy_id",
             "gc.synthetic_kind",
             "gc.drain_member_id",
+            "do not use the synthetic drain-unit convoy id as `<source-anchor-id>`",
+            "never persist `work_dir` on the synthetic drain-unit convoy",
+            "hard-fail if the selected source anchor id equals the synthetic input convoy id",
             "worktrees/<source-anchor-id>",
             "git worktree add",
             "bd update <source-anchor-id> --set-metadata work_dir=",
@@ -2713,6 +2871,11 @@ class FormulaAssetTests(unittest.TestCase):
         implement = node_description(root, steps["implement"])
         for fragment in (
             "Read `work_dir` from the source anchor",
+            "never read `work_dir` from the synthetic drain-unit convoy",
+            "Do not infer the source anchor from dependency ids",
+            "`gc.work_dir` is the launcher rig root, not the implementation worktree",
+            "if the JSON output is a one-element list, unwrap the",
+            "verify `pwd -P` equals",
             "cd \"$WORKTREE\"",
             "fail this step before editing",
             "Do not edit files in the launcher checkout",
@@ -2730,6 +2893,7 @@ class FormulaAssetTests(unittest.TestCase):
             "gc.outcome=pass",
             "if either check fails",
             "anchor before closing this step",
+            "Do not close this step with pass while the source anchor remains open",
         ):
             with self.subTest(step="close-source-anchor", fragment=fragment):
                 self.assertIn(fragment, close_source)
@@ -3243,9 +3407,10 @@ description = "Override sink that writes the base triage report contract."
         for (formula_name, step_id), (schema, path_keys) in BUILD_ARTIFACT_VALIDATION_GATES.items():
             with self.subTest(formula=formula_name, step=step_id):
                 formula = load_formula(root, formula_name)
-                steps = {step["id"]: step for step in formula["steps"]}
-                self.assertIn(step_id, steps, f"{formula_name} lost producer step {step_id}")
-                step = steps[step_id]
+                nodes = formula.get("steps") or formula.get("template") or []
+                nodes_by_id = {node["id"]: node for node in nodes}
+                self.assertIn(step_id, nodes_by_id, f"{formula_name} lost producer node {step_id}")
+                step = nodes_by_id[step_id]
 
                 self.assertIn(
                     "check",

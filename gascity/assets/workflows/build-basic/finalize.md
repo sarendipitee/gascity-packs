@@ -4,8 +4,75 @@ Summarize requirements, implementation-plan, design-review, create-beads,
 implementation, and review artifacts. Record the final outcome, artifact paths,
 and remaining follow-up beads on the workflow root bead.
 
-Write `factory-run.md` under the build artifact root. Keep it short and useful
-for a first-time factory user:
+Write the final report, normally `factory-run.md`, at the path recorded on the
+workflow root bead as `gc.build.final_report_path`. The artifact must be Markdown with YAML front
+matter, not JSON. Its front matter must declare
+`schema: gc.build.final-report.v1`, the workflow id/formula, the methodology
+pack/name, the producer formula/stage/attempt, `status`, and `trace` with
+upstream and coverage entries. Include a Markdown coverage table whose
+ID/status pairs exactly match `trace.coverage`.
+The validator only recognizes a Markdown table with an `ID` column and a
+`Status` column. Use this shape:
+
+| ID | Status |
+| --- | --- |
+| REQ-001 | covered |
+
+Before writing `factory-run.md`, ensure the canonical implementation summary
+exists at the path recorded on the workflow root bead as
+`gc.build.implementation_summary_path`, normally `implementation-summary.md`.
+If that path is missing, absent on disk, or not a valid
+`gc.build.implementation-summary.v1` artifact, synthesize the canonical
+`implementation-summary.md` from closed implementation source anchors and their
+recorded per-item `gc.implementation.summary_path` values. The synthesized
+artifact must be Markdown with YAML front matter, schema
+`gc.build.implementation-summary.v1`, the same trace shape and `ID`/`Status`
+coverage matrix described here, and these sections:
+
+- Summary
+- Intended Behavior
+- Changed Files
+- Verification
+- Remaining Risks
+
+Record the canonical path on the workflow root bead before validating or
+writing the final report. Use
+`bd update "<workflow-root-id>" --set-metadata "gc.build.implementation_summary_path=<absolute path>"`.
+Do not use `bd update --metadata 'key=value'`; `--metadata` only accepts a JSON
+object.
+
+Use mapping objects for front matter; do not use scalar shortcuts such as
+`workflow: build-basic`. The top-level YAML shape must be:
+
+- `schema: gc.build.final-report.v1`
+- `workflow: {id: <workflow-root-id>, formula: build-basic}`
+- `methodology: {pack: gascity, name: build-basic}`
+- `producer: {formula: build-basic, stage: finalize, attempt: <positive integer>}`
+- `status: approved` or another schema-allowed status
+- `trace: {upstream: [...], coverage: [...]}`
+
+Trace front matter must use the validator shape exactly:
+
+- `trace.upstream[]` entries must include `path` and `hash`; do not use
+  `id`/`title`/`type` entries as the upstream shape.
+- For upstream build artifacts, use their recorded paths and scheme-qualified
+  hashes such as `sha256:<digest>` or `git:<revision>`. For convoy or bead
+  inputs, use `path: beads/<bead-id>` and `hash: bead:<bead-id>`.
+- If an upstream entry lists `ids`, every listed id must appear exactly once in
+  `trace.coverage` and in the Markdown coverage table with the same status.
+- Coverage statuses are not artifact statuses. Use `covered` for satisfied
+  requirements; do not use `approved` in `trace.coverage[].status` or the
+  Markdown coverage table.
+
+Keep it short and useful for a first-time factory user. Include the required
+schema sections:
+
+- Summary
+- Outcome
+- Artifacts
+- Remaining Risks
+
+In those sections, include:
 
 - methodology: build-basic starter factory
 - requirements, plan, decomposition, implementation, and review artifact paths
@@ -15,8 +82,15 @@ for a first-time factory user:
 - publish outcome
 - next human action
 
-Record the `factory-run.md` path on the workflow root bead as
-`gc.build.factory_run_path=<path>`.
+Record the final report path on the workflow root bead as both
+`gc.build.final_report_path=<path>` and `gc.build.factory_run_path=<path>`.
+Use `bd update "<workflow-root-id>" --set-metadata "gc.build.final_report_path=<absolute path>" --set-metadata "gc.build.factory_run_path=<absolute path>"`.
+Do not use `bd update --metadata 'key=value'`; `--metadata` only accepts a JSON
+object.
+Before closing this step, set the claimed step outcome with
+`bd update "<claimed-step-id>" --set-metadata "gc.outcome=pass"`, then close
+with `bd close "<claimed-step-id>" --reason "<concise reason>"`. Do not pass
+`--metadata` or `--set-metadata` to `bd close`.
 
 Do not publish from this step.
 

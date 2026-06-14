@@ -1,13 +1,15 @@
 description = """
 Default design review workflow skeleton.
 
-The default formula reviews a design document and finalizes the input convoy.
+The default formula reviews a design document and finalizes input convoy
+{{convoy_id}}.
 Advanced packs can override the `design-review` step with multi-agent review
 graphs while preserving launch and finalization semantics.
 """
 formula = "design-review"
 version = 1
 contract = "graph.v2"
+target_required = true
 
 [catalog]
 name = "design-review"

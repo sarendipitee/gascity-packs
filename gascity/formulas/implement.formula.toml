@@ -1,11 +1,12 @@
 description = """
 Convoy-first implementation entry point.
 
-Core injects the reserved graph.v2 `convoy_id` target. The formula never
-declares that variable itself and rejects legacy bead/issue targeting before it
-creates drain work.
+Core records the graph.v2 source target as `gc.input_convoy_id` on the
+workflow root. The formula validates that input convoy before it creates drain
+work.
 
 Launch inputs:
+- input_convoy: {{convoy_id}}
 - context_path: {{context_path}} (empty means no extra context bundle)
 - drain_policy: {{drain_policy}}
 - implementation_target: {{implementation_target}}
@@ -17,6 +18,7 @@ formula = "implement"
 version = 2
 contract = "graph.v2"
 target_required = true
+sling_container_mode = "source"
 
 [catalog]
 name = "implement"

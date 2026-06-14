@@ -10,4 +10,7 @@ Include a lightweight implementation readiness pass before decomposition:
 - risk: risky files, migrations, public interfaces, and rollback concerns are
   explicit enough for an implementer
 
-Record the approved plan or review report path on the workflow root bead.
+If you write a plan-readiness note, record it on the workflow root as
+`gc.build.plan_review_report_path=<path>`. Do not write or overwrite
+`gc.build.review_report_path`; that key is reserved for the later
+build-basic implementation review artifact.
