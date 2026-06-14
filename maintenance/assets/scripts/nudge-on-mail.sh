@@ -7,14 +7,21 @@
 #
 # Subscribes to bead.created events; whenever a bead with issue_type=message
 # arrives it nudges the assignee session. Idempotent: a given bead_id is nudged
-# at most once. Dedup state lives in $GC_PACK_STATE_DIR/nudge-on-mail-state.json.
+# at most once per run; an assignee is nudged at most once per COOLDOWN window
+# across runs. Dedup state lives in $GC_PACK_STATE_DIR/nudge-on-mail-state.json.
+#
+# Note: concurrent runs are not serialised. Under parallel execution two
+# instances may both read state before either writes, causing a duplicate nudge
+# for the first bead a given assignee receives in that window. The controller's
+# exec-order serialisation should prevent this in normal operation.
 #
 # Runs as an exec order (no LLM, no agent, no wisp).
 set -euo pipefail
 
 __SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# _bd_trace.sh is optional instrumentation; source it only if present.
 # shellcheck disable=SC1091
-. "$__SCRIPT_DIR/_bd_trace.sh" "nudge-on-mail"
+[ -f "$__SCRIPT_DIR/_bd_trace.sh" ] && . "$__SCRIPT_DIR/_bd_trace.sh" "nudge-on-mail"
 
 if ! command -v jq >/dev/null 2>&1; then
     echo "nudge-on-mail: jq is required but not found in PATH" >&2
@@ -28,6 +35,8 @@ NUDGE_MESSAGE="${GC_NUDGE_ON_MAIL_MESSAGE:-You have new mail — run gc hook to 
 # Per-session rate limit: a given recipient is nudged at most once per
 # COOLDOWN, so a burst of mail (watchdog incidents, advisories, digests)
 # collapses into a single wake instead of one interruption per bead.
+# RETENTION must be >= COOLDOWN or session cooldown entries may be pruned
+# before the window expires, silently disabling the rate limit.
 COOLDOWN="${GC_NUDGE_ON_MAIL_COOLDOWN:-10m}"
 
 PACK_STATE_DIR="${GC_PACK_STATE_DIR:-${GC_CITY_RUNTIME_DIR:-$CITY/.gc/runtime}/packs/maintenance}"
@@ -61,16 +70,22 @@ PAIRS="$(printf '%s\n' "$EVENTS" \
 STATE="$(cat "$STATE_FILE" 2>/dev/null || true)"
 echo "$STATE" | jq -e 'type == "object"' >/dev/null 2>&1 || STATE='{}'
 
-NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+RETENTION_S="$(duration_to_seconds "$RETENTION")"
 COOLDOWN_S="$(duration_to_seconds "$COOLDOWN")"
+if [ "$RETENTION_S" -lt "$COOLDOWN_S" ]; then
+    echo "nudge-on-mail: RETENTION ($RETENTION) is shorter than COOLDOWN ($COOLDOWN); session cooldowns will not be honoured" >&2
+fi
+
+NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 NUDGED=0
 while IFS="$(printf '\t')" read -r bead_id assignee; do
     [ -n "$bead_id" ] || continue
     [ -n "$assignee" ] || continue
     key="$bead_id"
-    # Already processed this mail bead — refresh its timestamp and skip.
+    # Already processed this mail bead — skip. Do not refresh the timestamp;
+    # the entry should age from when it was first seen so retention prunes it
+    # correctly after RETENTION elapses.
     if echo "$STATE" | jq -e --arg k "$key" 'has($k)' >/dev/null 2>&1; then
-        STATE="$(echo "$STATE" | jq --arg k "$key" --arg now "$NOW" '.[$k] = $now')"
         continue
     fi
     # Record the bead as seen up front so a rate-limited burst is not
@@ -93,7 +108,6 @@ $PAIRS
 EOF
 
 # Prune entries older than RETENTION so the state file stays bounded.
-RETENTION_S="$(duration_to_seconds "$RETENTION")"
 STATE="$(echo "$STATE" | jq --argjson keep "$RETENTION_S" \
     'with_entries(select((now - (.value | fromdateiso8601)) <= $keep))')" || true
 
