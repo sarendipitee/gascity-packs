@@ -373,17 +373,32 @@ fi
 age=$((NOW - last_merge))
 [ "$last_merge" -eq 0 ] && age=-1
 
-# unmerged_branches — count local feature branches NOT yet contained in
-# origin/<default>. EVIDENCE ONLY: this is reported in incident mail but does
-# NOT gate the stall. `git --no-contains` cannot detect squash-merges, and stale
-# / abandoned branches pile up on dev rigs forever, so a non-zero count here is
-# NOT proof of backlog — using it as a stall trigger produced chronic phantom
-# merge-stall alerts on idle rigs. The routed-bead queue is the only authority.
+# unmerged_branches — count local polecat/* branches that are genuinely unmerged.
+# EVIDENCE ONLY: this is reported in incident mail but does NOT gate the stall.
+# We use `git cherry` to detect patch-id equivalence (catches cherry-pick / squash
+# merges), and only count branches matching polecat/* (actual work) while filtering
+# out upstream/non-polecat branches (gc-gastown.*, fork branches, etc.) that are
+# not part of the polecat-to-refinery merge pipeline. The routed-bead queue is
+# the only authority for stall detection.
 unmerged_branches=0
 if [ -n "$merge_ref" ]; then
+    # List all local polecat/* branches, then use `git cherry` to exclude those
+    # already applied (patch-id equivalent) to the merge ref. `git cherry` outputs:
+    #   - "+" prefix: commit not yet in merge ref (genuinely unmerged)
+    #   - "-" prefix: commit already in merge ref (merged via any method)
+    #   - blank: merge ref is not an ancestor (edge case, treat as unmerged)
+    # Count lines with "+" or blank to get true unmerged count.
     unmerged_branches=$(git -C "$rig_path" for-each-ref --format='%(refname:short)' \
-        --no-contains "$merge_ref" refs/heads/ 2>/dev/null \
-        | grep -vxF "$default_branch" | grep -c . 2>/dev/null) || unmerged_branches=0
+        refs/heads/polecat/ 2>/dev/null \
+        | while IFS= read -r branch; do
+            [ -z "$branch" ] && continue
+            # Use git cherry to check if this branch has commits not yet in merge_ref.
+            # If there's any "+" output, the branch has unmerged commits.
+            if git -C "$rig_path" cherry "$merge_ref" "$branch" 2>/dev/null \
+                | grep -q '^[+]' 2>/dev/null; then
+                printf '1\n'
+            fi
+        done | grep -c . 2>/dev/null) || unmerged_branches=0
 fi
 [ -n "$unmerged_branches" ] || unmerged_branches=0
 
