@@ -612,11 +612,20 @@ if [ -n "$CURRENT_WISP" ]; then
       -m "gc bd mol burn $CURRENT_WISP --force returned non-zero. Next wisp $NEXT is already assigned and will resume on restart."
   fi
 else
-  echo "ERROR: Could not resolve CURRENT_WISP for burning. This should have been caught in preamble."
-  gc mail send mayor/ -s "WITNESS: No current wisp to burn [CRITICAL]" \
-    -m "Reached the burn step but CURRENT_WISP is empty. Check preamble logic."
-  gc runtime drain-ack
-  exit 1
+  # If CURRENT_WISP is empty and rig is idle, this is normal (no work to monitor).
+  # Only escalate if the rig is actively running work but we still can't identify the current wisp.
+  ROUTED_WISPS=$(gc bd ready --metadata-field "gc.routed_to={{binding_prefix}}polecat" --unassigned --json --limit=1 2>/dev/null | jq 'length')
+  IN_PROGRESS_WISPS=$(gc bd list --status=in_progress --json --limit=1 2>/dev/null | jq 'length')
+
+  if [ "$ROUTED_WISPS" = "0" ] && [ "$IN_PROGRESS_WISPS" = "0" ]; then
+    echo "Rig is idle (no routed/in-progress wisps). No current wisp to burn is expected."
+  else
+    echo "ERROR: Could not resolve CURRENT_WISP for burning. Rig is NOT idle, so this is a real failure."
+    gc mail send mayor/ -s "WITNESS: No current wisp to burn [CRITICAL]" \
+      -m "Reached the burn step but CURRENT_WISP is empty and rig is NOT idle. Check preamble logic and GC_BEAD_ID environment variable."
+    gc runtime drain-ack
+    exit 1
+  fi
 fi
 ```
 
@@ -646,11 +655,22 @@ if [ -z "$CURRENT_WISP" ]; then
 fi
 
 if [ -z "$CURRENT_WISP" ]; then
-  echo "CRITICAL: Cannot resolve current witness wisp — refusing to pour without a burn target."
-  gc mail send mayor/ -s "WITNESS: Cannot resolve current wisp for burning [CRITICAL]" \
-    -m "The witness patrol loop reached next-iteration but could not identify the current wisp ID to burn. This prevents the pour-and-burn cycle from completing. Check: (1) GC_BEAD_ID environment variable; (2) witness session's assigned wisps; (3) gc bd list output."
-  gc runtime drain-ack
-  exit 1
+  # Check if the rig is idle (no routed/in-progress wisps to polecats).
+  # An empty wisp during idle patrol is normal and should be a no-op.
+  ROUTED_WISPS=$(gc bd ready --metadata-field "gc.routed_to={{binding_prefix}}polecat" --unassigned --json --limit=1 2>/dev/null | jq 'length')
+  IN_PROGRESS_WISPS=$(gc bd list --status=in_progress --json --limit=1 2>/dev/null | jq 'length')
+
+  if [ "$ROUTED_WISPS" = "0" ] && [ "$IN_PROGRESS_WISPS" = "0" ]; then
+    # Rig is idle. No current wisp to burn is expected. Skip burning and continue.
+    echo "Rig is idle (no routed/in-progress wisps). Skipping burn of empty CURRENT_WISP."
+  else
+    # Rig is not idle but we still can't find the current wisp. This is a real failure.
+    echo "CRITICAL: Cannot resolve current witness wisp — refusing to pour without a burn target."
+    gc mail send mayor/ -s "WITNESS: Cannot resolve current wisp for burning [CRITICAL]" \
+      -m "The witness patrol loop reached next-iteration but could not identify the current wisp ID to burn. Rig is NOT idle (routed/in-progress wisps exist), so this is a real failure. Check: (1) GC_BEAD_ID environment variable; (2) witness session's assigned wisps; (3) gc bd list output."
+    gc runtime drain-ack
+    exit 1
+  fi
 fi
 ```
 
