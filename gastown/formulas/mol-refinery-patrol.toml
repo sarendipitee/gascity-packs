@@ -885,6 +885,16 @@ fi
 gc bd update $WORK --unset-metadata work_dir
 ```
 
+If delete_merged_worktrees = "true":
+```bash
+WORKTREE=$(gc bd show $WORK --json | jq -r '.[0].metadata.work_dir // empty')
+if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
+  git worktree remove --force "$WORKTREE" || rm -rf "$WORKTREE"
+  git worktree prune
+fi
+gc bd update $WORK --unset-metadata work_dir
+```
+
 **If MERGE_STRATEGY = "mr":**
 
 Refinery does NOT land the branch directly. Instead it publishes a pull
