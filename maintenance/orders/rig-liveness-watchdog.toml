@@ -23,7 +23,8 @@
 #
 # Tunable via env (set on the controller): WATCHDOG_ESCALATE_TO (default mayor),
 # WATCHDOG_FRESH_MIN (default 60), WATCHDOG_REALERT_TICKS (default 5),
-# WATCHDOG_WITNESS_STALE_MIN (default 15), WATCHDOG_MIN_QUEUE (default 2 —
+# WATCHDOG_WITNESS_STALE_MIN (default 30; raised from 15 to accommodate slow
+# orphan-recovery queries on busy rigs), WATCHDOG_MIN_QUEUE (default 2 —
 # minimum merge-queue depth to raise a merge-stall; the dead-refinery escalation
 # is ungated by it).
 [order]
