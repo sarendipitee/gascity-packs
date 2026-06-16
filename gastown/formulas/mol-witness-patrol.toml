@@ -179,13 +179,9 @@ a NEW session with a different ID — the old one never comes back.
    configured named identity.
 
    Two schema facts this recipe depends on (verified live, gc-3tn8g):
-   - As of gc v1.1.1 `gc session list --json` returns an OBJECT
-     `{filters, ok, schema_version, sessions, summary}`, not a top-level array
-     — iterate the array under `.sessions`, never the top level (the top-level
-     values include booleans, so `$x.id` on them errors). Older gc versions
-     returned a flat top-level array; normalize with `(.sessions? // .)` so the
-     same recipe works across both shapes (when `.sessions` is absent the whole
-     value IS already the array).
+   - `gc session list --json` returns an OBJECT `{sessions:[...], ...}`, not
+     a top-level array — iterate `.sessions[]`, never the top level (the
+     top-level values include booleans, so `$x.id` on them errors).
    - Session fields are lowercase snake_case: `id / name / session_name /
      alias / agent_name / state / closed`. Key the map on `id`, `name`,
      `session_name`, `alias`, and `agent_name` — the exact identifier forms
@@ -204,7 +200,7 @@ a NEW session with a different ID — the old one never comes back.
        if (($key // "") | length) == 0 then $m
        else $m + {($key): (if $closed then "closed" else ($state // "") end)}
        end;
-     (reduce (($sessions[0].sessions? // $sessions[0]) // [])[] as $s ({};
+     (reduce ($sessions[0].sessions // [])[] as $s ({};
          add(.; $s.id;         $s.state; ($s.closed // false))
        | add(.; $s.name;       $s.state; ($s.closed // false))
        | add(.; $s.session_name; $s.state; ($s.closed // false))
@@ -214,7 +210,7 @@ a NEW session with a different ID — the old one never comes back.
      | reduce ($session_beads[0] // [])[] as $b ($from_sessions;
          add(.; $b.metadata.configured_named_identity; $b.metadata.state; ($b.status == "closed")))')
 
-   SESSION_COUNT=$(jq -r '(.sessions? // . // []) | length' "$SESSIONS_FILE")
+   SESSION_COUNT=$(jq -r '(.sessions // []) | length' "$SESSIONS_FILE")
    MAP_COUNT=$(printf '%s' "$LIVENESS_MAP" | jq -r 'length')
    rm -f "$SESSIONS_FILE" "$SESSION_BEADS_FILE"
    ```
@@ -567,37 +563,25 @@ gc runtime request-restart
 This blocks forever. The controller restarts you. The next wisp
 is already assigned — the new session resumes from context.
 
-**2. Pour next iteration BEFORE burning (reconcile to exactly one):**
-
-Reuse an already-queued wisp instead of pouring a duplicate. A prior cycle
-may have poured a next wisp without burning, or a restart may have raced —
-keep one open patrol wisp and burn any surplus, so wisps never accumulate.
-Wisp roots are `issue_type=molecule` (never `--type=wisp`, which is not a
-valid bd type and matches nothing).
+**2. Pour next iteration BEFORE burning:**
 ```bash
-OPEN_WISPS=$(gc bd list --assignee="$GC_AGENT" --status=open --type=molecule --limit=0 --json | jq -r '.[].id')
-NEXT=$(printf '%s\n' $OPEN_WISPS | sed -n '1p')
-for extra in $(printf '%s\n' $OPEN_WISPS | sed '1d'); do
-  gc bd mol burn "$extra" --force
-done
+NEXT=$(gc bd mol wisp mol-witness-patrol --root-only --var binding_prefix='{{binding_prefix}}' --json | jq -r '.new_epic_id // empty')
 if [ -z "$NEXT" ]; then
-  NEXT=$(gc bd mol wisp mol-witness-patrol --root-only --var binding_prefix='{{binding_prefix}}' --json | jq -r '.new_epic_id // empty')
-  if [ -z "$NEXT" ]; then
-    echo "FAILED to pour next witness wisp — unable to proceed. Burning current wisp anyway as fail-safe."
-    gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
-    gc mail send mayor/ -s "WITNESS: Failed to pour next wisp [CRITICAL]" \
-      -m "gc bd mol wisp failed to generate a new wisp ID. Current wisp $CURRENT_WISP was burned. Investigate mol wisp command."
-    gc runtime drain-ack
-    exit 1
-  fi
-  if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then
-    echo "FAILED to assign next wisp — still burning current as fail-safe."
-    gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
-    gc mail send mayor/ -s "WITNESS: Failed to assign next wisp [CRITICAL]" \
-      -m "gc bd update to assign next wisp $NEXT failed. Current wisp $CURRENT_WISP was burned anyway. Investigate."
-    gc runtime drain-ack
-    exit 1
-  fi
+  echo "FAILED to pour next witness wisp — unable to proceed. Burning current wisp anyway as fail-safe."
+  gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
+  gc mail send mayor/ -s "WITNESS: Failed to pour next wisp [CRITICAL]" \
+    -m "gc bd mol wisp failed to generate a new wisp ID. Current wisp $CURRENT_WISP was burned. Investigate mol wisp command."
+  gc runtime drain-ack
+  exit 1
+fi
+
+if ! gc bd update "$NEXT" --assignee=$GC_AGENT; then
+  echo "FAILED to assign next wisp — still burning current as fail-safe."
+  gc bd mol burn "$CURRENT_WISP" --force 2>/dev/null || true
+  gc mail send mayor/ -s "WITNESS: Failed to assign next wisp [CRITICAL]" \
+    -m "gc bd update to assign next wisp $NEXT failed. Current wisp $CURRENT_WISP was burned anyway. Investigate."
+  gc runtime drain-ack
+  exit 1
 fi
 ```
 
