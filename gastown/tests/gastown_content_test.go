@@ -1065,6 +1065,75 @@ func TestRefineryPatrolRestartGuidanceAssignsSuccessor(t *testing.T) {
 	assertCurrentWispBurnsRequireSuccessor(t, "refinery formula", formulaBody)
 }
 
+func TestRefineryFormulaDeletesMergedWorktrees(t *testing.T) {
+	path := packPath("formulas", "mol-refinery-patrol.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading refinery formula: %v", err)
+	}
+	body := string(data)
+
+	t.Run("config_var_present", func(t *testing.T) {
+		want := `[vars.delete_merged_worktrees]`
+		if !strings.Contains(body, want) {
+			t.Errorf("refinery formula missing config var %q", want)
+		}
+		if !strings.Contains(body, `description = "Whether to delete the polecat worktree after a successful merge"`) {
+			t.Error("delete_merged_worktrees var missing or has wrong description")
+		}
+		if !strings.Contains(body, `default = "true"`) {
+			t.Error("delete_merged_worktrees var missing default = true")
+		}
+	})
+
+	desc := refineryMergePushDescription(t)
+
+	t.Run("direct_merge_cleanup", func(t *testing.T) {
+		// Extract the direct merge cleanup section (between "**4. Cleanup:**" and "**If MERGE_STRATEGY = \"mr\":**")
+		directStart := strings.Index(desc, "**4. Cleanup:**")
+		if directStart == -1 {
+			t.Fatal("merge-push description missing direct merge cleanup section")
+		}
+		directEnd := strings.Index(desc[directStart:], "**If MERGE_STRATEGY = \"mr\":**")
+		if directEnd == -1 {
+			t.Fatal("merge-push description missing mr strategy section marker")
+		}
+		directCleanup := desc[directStart : directStart+directEnd]
+
+		for _, want := range []string{
+			`delete_merged_worktrees`,
+			`WORKTREE=$(gc bd show $WORK --json | jq -r '.[0].metadata.work_dir // empty')`,
+			`git worktree remove --force "$WORKTREE"`,
+			`gc bd update $WORK --unset-metadata work_dir`,
+		} {
+			if !strings.Contains(directCleanup, want) {
+				t.Errorf("direct merge cleanup missing %q", want)
+			}
+		}
+	})
+
+	t.Run("pr_merge_cleanup", func(t *testing.T) {
+		// Extract the PR merge cleanup section (between "**5. Cleanup:**" and "Do NOT delete `$BRANCH`")
+		prStart := strings.Index(desc, "**5. Cleanup:**")
+		if prStart == -1 {
+			t.Fatal("merge-push description missing PR merge cleanup section")
+		}
+		// Get everything after PR cleanup to search for the worktree logic
+		prCleanup := desc[prStart:]
+
+		// Find the section that has the worktree logic for PR cleanup
+		if !strings.Contains(prCleanup, `delete_merged_worktrees`) {
+			t.Error("PR merge cleanup missing delete_merged_worktrees check")
+		}
+		if !strings.Contains(prCleanup, `WORKTREE=$(gc bd show $WORK --json | jq -r '.[0].metadata.work_dir // empty')`) {
+			t.Error("PR merge cleanup missing worktree extraction")
+		}
+		if !strings.Contains(prCleanup, `gc bd update $WORK --unset-metadata work_dir`) {
+			t.Error("PR merge cleanup missing metadata cleanup")
+		}
+	})
+}
+
 // ─── polecat formula ──────────────────────────────────────────────────────────
 
 func TestPolecatFormulaTreatsMetadataBranchAsAuthoritative(t *testing.T) {
