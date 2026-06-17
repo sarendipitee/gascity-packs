@@ -212,7 +212,6 @@ metadata = block.index('--set-metadata merge_result=merged')
 if verify >= metadata:
     raise SystemExit(1)
 PY
-
     [[ "$direct_block" == *'cleanup_stale_polecat_refs()'* ]] ||
         fail "direct refinery merge must define stale polecat ref cleanup"
     [[ "$direct_block" == *'git for-each-ref --format='\''%(refname:short)'\'' refs/heads/polecat/'* ]] ||
@@ -239,7 +238,6 @@ test_operational_awareness_has_no_hardcoded_dolt_connection_literals() {
     grep -F '$GC_DOLT_PORT' "$fragment" >/dev/null ||
         fail "operational-awareness should reference \$GC_DOLT_PORT for the live Dolt port"
 }
-
 test_dog_assets_are_pack_local
 test_retired_dog_formulas_are_not_reintroduced
 test_shutdown_dance_contracts_are_executable
