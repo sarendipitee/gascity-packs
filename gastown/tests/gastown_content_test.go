@@ -393,6 +393,33 @@ func TestRefineryAssignedWorkQueriesUsePortableRigScope(t *testing.T) {
 	}
 }
 
+func TestMaintenancePruneBranchesUsesClosedBeadSafetyGuards(t *testing.T) {
+	path := packPath("..", "maintenance", "assets", "scripts", "prune-branches.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading prune-branches.sh: %v", err)
+	}
+	body := string(data)
+
+	for _, want := range []string{
+		"gc bd list --json --limit=0",
+		"branch_is_safe_to_prune() {",
+		"[ \"$status\" = \"closed\" ] || return 1",
+		"[ -z \"$rejection_reason\" ] || return 1",
+		"refs/remotes/origin/$branch",
+		"merge-base --is-ancestor \"$branch\" \"origin/$target\"",
+		"git -C \"$rig_path\" cherry \"origin/$target\" \"$branch\"",
+		"git -C \"$rig_path\" branch -D \"$branch\"",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("prune-branches.sh missing safety guard %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "origin/main") {
+		t.Fatalf("prune-branches.sh should not hard-code origin/main anymore:\n%s", body)
+	}
+}
+
 // ─── refinery formula ─────────────────────────────────────────────────────────
 
 func TestRefineryFormulaSupportsMergeStrategies(t *testing.T) {

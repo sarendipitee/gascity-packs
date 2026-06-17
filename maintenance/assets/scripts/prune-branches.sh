@@ -10,12 +10,74 @@ set -euo pipefail
 
 CITY="${GC_CITY:-.}"
 PRUNED=0
+DEFAULT_BRANCH="${GC_DEFAULT_BRANCH:-live}"
+TMP_BEADS="$(mktemp)"
+trap 'rm -f "$TMP_BEADS"' EXIT
 
 # Get all rig paths.
 RIGS=$(gc rig list --json 2>/dev/null | jq -r '.rigs[].path' 2>/dev/null) || exit 0
 if [ -z "$RIGS" ]; then
     exit 0
 fi
+
+# Snapshot bead metadata once so branch pruning can make a conservative
+# decision without repeated full-database scans per ref.
+if ! gc bd list --json --limit=0 2>/dev/null >"$TMP_BEADS"; then
+    exit 0
+fi
+
+bead_for_branch() {
+    local branch="$1"
+    jq -r --arg branch "$branch" '
+        .[]
+        | select((.metadata.branch // "") == $branch)
+        | @base64
+    ' "$TMP_BEADS" 2>/dev/null | head -n1
+}
+
+branch_is_safe_to_prune() {
+    local rig_path="$1"
+    local branch="$2"
+    local bead_payload="$3"
+    local bead_json
+    local status
+    local rejection_reason
+    local target
+
+    [ -n "$bead_payload" ] || return 1
+    bead_json=$(printf '%s' "$bead_payload" | base64 --decode 2>/dev/null) || return 1
+    status=$(printf '%s' "$bead_json" | jq -r '.[0].status // .status // empty' 2>/dev/null)
+    rejection_reason=$(printf '%s' "$bead_json" | jq -r '.[0].metadata.rejection_reason // .metadata.rejection_reason // empty' 2>/dev/null)
+    target=$(printf '%s' "$bead_json" | jq -r '.[0].metadata.target // .metadata.target // empty' 2>/dev/null)
+
+    # Only prune branches for closed beads. Rejected or still-open work
+    # remains evidence and must stay on disk.
+    [ "$status" = "closed" ] || return 1
+    [ -z "$rejection_reason" ] || return 1
+
+    # If the remote ref still exists, keep the local ref so the branch can be
+    # fetched or inspected. We only clean up refs that are already remote-gone.
+    if git -C "$rig_path" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
+        return 1
+    fi
+
+    # Use the recorded target if present, otherwise fall back to the default
+    # branch. Patch-equivalent landings are safe to prune when the branch's tip
+    # is already represented on the target history.
+    if [ -z "$target" ]; then
+        target="$DEFAULT_BRANCH"
+    fi
+    if git -C "$rig_path" show-ref --verify --quiet "refs/remotes/origin/$target" 2>/dev/null; then
+        if git -C "$rig_path" merge-base --is-ancestor "$branch" "origin/$target" 2>/dev/null; then
+            return 0
+        fi
+        if ! git -C "$rig_path" cherry "origin/$target" "$branch" 2>/dev/null | grep -q '^+'; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
 
 while IFS= read -r rig_path; do
     [ -d "$rig_path/.git" ] || continue
@@ -35,15 +97,9 @@ while IFS= read -r rig_path; do
         # Skip current branch.
         [ "$branch" = "$CURRENT" ] && continue
 
-        # Delete if merged to default branch (safe -d, not -D).
-        if git -C "$rig_path" merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
-            git -C "$rig_path" branch -d "$branch" 2>/dev/null && PRUNED=$((PRUNED + 1))
-            continue
-        fi
-
-        # Delete if remote tracking branch is gone.
-        if ! git -C "$rig_path" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
-            git -C "$rig_path" branch -d "$branch" 2>/dev/null && PRUNED=$((PRUNED + 1))
+        BEAD=$(bead_for_branch "$branch")
+        if branch_is_safe_to_prune "$rig_path" "$branch" "$BEAD"; then
+            git -C "$rig_path" branch -D "$branch" 2>/dev/null && PRUNED=$((PRUNED + 1))
         fi
     done <<< "$BRANCHES"
 done <<< "$RIGS"
