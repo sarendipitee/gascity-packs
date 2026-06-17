@@ -1,19 +1,6 @@
 name: Supported Pack Nightly
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - gascity/**
-      - superpowers/**
-      - compound-engineering/**
-      - gstack/**
-      - bmad/**
-      - gastown/**
-      - scripts/gascity_pack_inference_gate.py
-      - tests/test_gascity_pack_inference_gate.py
-      - .github/workflows/gascity-pack-inference.yml
-      - .github/workflows/supported-pack-nightly.yml
   schedule:
     - cron: "47 7 * * *"
   workflow_dispatch:

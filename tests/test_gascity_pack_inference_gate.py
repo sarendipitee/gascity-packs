@@ -234,6 +234,9 @@ def test_supported_pack_nightly_workflow_uses_tier_c_ollama_shape_and_pack_matri
     )
 
     assert "name: Supported Pack Nightly" in workflow
+    assert "\n  schedule:" in workflow
+    assert "\n  pull_request:" not in workflow
+    assert "\n  push:" not in workflow
     assert 'default: main' in workflow
     assert "description: \"Supported pack or group to exercise for manual subset checks.\"" in workflow
     assert "description: \"Inference gate to run for manual subset checks.\"" in workflow
@@ -280,7 +283,7 @@ def test_supported_pack_nightly_workflow_uses_tier_c_ollama_shape_and_pack_matri
     assert "include-hidden-files: true" in workflow
 
 
-def test_dispatch_inference_workflow_is_not_the_scheduled_nightly() -> None:
+def test_dispatch_inference_workflow_is_manual_or_external_only() -> None:
     workflow = (gascity_pack_inference_gate.REPO_ROOT / ".github" / "workflows" / "gascity-pack-inference.yml").read_text(
         encoding="utf-8"
     )
@@ -288,6 +291,8 @@ def test_dispatch_inference_workflow_is_not_the_scheduled_nightly() -> None:
     assert "repository_dispatch:" in workflow
     assert "workflow_dispatch:" in workflow
     assert "\n  schedule:" not in workflow
+    assert "\n  pull_request:" not in workflow
+    assert "\n  push:" not in workflow
     assert "runs-on: blacksmith-32vcpu-ubuntu-2404" in workflow
     assert 'DOLT_VERSION: "2.1.0"' in workflow
     assert "ANTHROPIC_API_KEY: ${{ secrets.OLLAMA_API_KEY }}" in workflow
