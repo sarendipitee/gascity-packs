@@ -492,6 +492,28 @@ func TestRefineryFormulaRefusesZeroDiffMerge(t *testing.T) {
 	}
 }
 
+func TestRigLivenessWatchdogReportsBranchBacklogDiagnostics(t *testing.T) {
+	path := packPath("..", "maintenance", "assets", "scripts", "rig-liveness-watchdog.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading rig-liveness-watchdog.sh: %v", err)
+	}
+	body := string(data)
+	for _, want := range []string{
+		"branch_backlog_diagnostics() {",
+		"local polecat refs =",
+		"origin polecat refs =",
+		"stale local refs    =",
+		"open branch beads   =",
+		"rejected beads      =",
+		"closed branch beads =",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("watchdog missing %q", want)
+		}
+	}
+}
+
 // TestRefineryBranchHasRealChangeExec runs the extracted predicate against
 // real git repositories. Skipped if branch_has_real_change is not present
 // in the SoT (the static test above already flags that).
