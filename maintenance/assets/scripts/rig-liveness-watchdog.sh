@@ -395,6 +395,44 @@ if [ "$queue" -ge "$MIN_QUEUE" ]; then
     real_backlog=yes
 fi
 
+branch_backlog_diagnostics() {
+    local local_refs origin_refs stale_local_refs open_branch_beads rejected_beads closed_branch_beads
+    local_refs=0
+    origin_refs=0
+    stale_local_refs=0
+    open_branch_beads=0
+    rejected_beads=0
+    closed_branch_beads=0
+
+    if [ -n "$rig_path" ] && [ -d "$rig_path/.git" ]; then
+        local_refs=$(git -C "$rig_path" for-each-ref --format='%(refname:short)' refs/heads/polecat/ 2>/dev/null | grep -c . 2>/dev/null) || local_refs=0
+        origin_refs=$(git -C "$rig_path" for-each-ref --format='%(refname:short)' refs/remotes/origin/polecat/ 2>/dev/null | grep -c . 2>/dev/null) || origin_refs=0
+        stale_local_refs=$(git -C "$rig_path" for-each-ref --format='%(refname:short)' refs/heads/polecat/ 2>/dev/null \
+            | while IFS= read -r ref; do
+                [ -z "$ref" ] && continue
+                if ! git -C "$rig_path" show-ref --verify --quiet "refs/remotes/origin/$ref" 2>/dev/null; then
+                    printf '%s\n' "$ref"
+                fi
+            done | grep -c . 2>/dev/null) || stale_local_refs=0
+    fi
+
+    open_branch_beads=$(gc bd list --rig "$RIG" --status=open --json 2>/dev/null \
+        | jq '[.[] | select(.metadata.branch != null)] | length' 2>/dev/null) || open_branch_beads=0
+    rejected_beads=$(gc bd list --rig "$RIG" --status=open --json 2>/dev/null \
+        | jq '[.[] | select(.metadata.rejection_reason != null)] | length' 2>/dev/null) || rejected_beads=0
+    closed_branch_beads=$(gc bd list --rig "$RIG" --status=closed --json 2>/dev/null \
+        | jq '[.[] | select(.metadata.branch != null)] | length' 2>/dev/null) || closed_branch_beads=0
+
+    cat <<EOF
+  local polecat refs = $local_refs
+  origin polecat refs = $origin_refs
+  stale local refs    = $stale_local_refs
+  open branch beads   = $open_branch_beads
+  rejected beads      = $rejected_beads
+  closed branch beads = $closed_branch_beads
+EOF
+}
+
 if is_startup_state "$refinery_state" && ! startup_grace_exceeded "$RIG:refinery:dead" "$refinery_state"; then
     : # refinery mid-startup within grace window — not an incident yet.
 elif is_dead_state "$refinery_state" || is_startup_state "$refinery_state"; then
@@ -411,6 +449,7 @@ Evidence:
   refinery state  = $refinery_state
   merge queue     = $queue bead(s)
   unmerged branch = $unmerged_branches
+$(branch_backlog_diagnostics)
   last merge (s)  = $age ago on '$default_branch'
   default branch  = $default_branch
 
@@ -435,6 +474,7 @@ Evidence:
   refinery state  = $refinery_state
   merge queue     = $queue bead(s) routed to refinery / ready (threshold $MIN_QUEUE)
   unmerged branch = $unmerged_branches feature branch(es) not in '$default_branch'
+$(branch_backlog_diagnostics)
   last merge      = $mergeline
   default branch  = $default_branch
 
