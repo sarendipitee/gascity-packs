@@ -130,10 +130,37 @@ test_composition_is_documented() {
         fail "pack.toml should not reference the retired maintenance pack import"
 }
 
+test_refinery_prunes_stale_local_polecat_refs() {
+    local formula direct_block
+    formula="$GASTOWN/formulas/mol-refinery-patrol.toml"
+
+    direct_block=$(python3 - "$formula" <<'PY'
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+start = text.index('**If MERGE_STRATEGY = "direct"')
+end = text.index('**If MERGE_STRATEGY = "mr"')
+print(text[start:end])
+PY
+)
+
+    [[ "$direct_block" == *'cleanup_stale_polecat_refs()'* ]] ||
+        fail "direct refinery merge must define stale polecat ref cleanup"
+    [[ "$direct_block" == *'git for-each-ref --format='\''%(refname:short)'\'' refs/heads/polecat/'* ]] ||
+        fail "direct refinery merge must scan local polecat heads before cleanup"
+    [[ "$direct_block" == *'git update-ref -d "refs/heads/$ref"'* ]] ||
+        fail "direct refinery merge must delete stale local polecat refs"
+
+    grep -F 'cleanup_stale_polecat_ref()' "$formula" >/dev/null ||
+        fail "mr refinery merge must define stale polecat ref cleanup"
+    grep -F 'git update-ref -d "$branch_ref"' "$formula" >/dev/null ||
+        fail "mr refinery merge must delete the matching stale local polecat ref"
+}
+
 test_dog_assets_are_pack_local
 test_retired_dog_formulas_are_not_reintroduced
 test_shutdown_dance_contracts_are_executable
 test_shutdown_dance_lifecycle_and_audit_contracts
 test_composition_is_documented
+test_refinery_prunes_stale_local_polecat_refs
 
 echo "gastown pack asset tests passed"
