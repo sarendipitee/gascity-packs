@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# prune-branches — clean stale gc/* worktree branches from all rigs.
+# prune-branches — clean stale gc/* and polecat/* worktree branches from all rigs.
 #
 # These branches are created by coding agents for worktree isolation.
 # After work is merged and the remote branch deleted, local tracking
@@ -46,19 +46,22 @@ branch_is_safe_to_prune() {
 
     [ -n "$bead_payload" ] || return 1
     bead_json=$(printf '%s' "$bead_payload" | base64 --decode 2>/dev/null) || return 1
-    status=$(printf '%s' "$bead_json" | jq -r '.[0].status // .status // empty' 2>/dev/null)
-    rejection_reason=$(printf '%s' "$bead_json" | jq -r '.[0].metadata.rejection_reason // .metadata.rejection_reason // empty' 2>/dev/null)
-    target=$(printf '%s' "$bead_json" | jq -r '.[0].metadata.target // .metadata.target // empty' 2>/dev/null)
+    status=$(printf '%s' "$bead_json" | jq -r 'if type == "array" then .[0].status else .status end // empty' 2>/dev/null)
+    rejection_reason=$(printf '%s' "$bead_json" | jq -r 'if type == "array" then .[0].metadata.rejection_reason else .metadata.rejection_reason end // empty' 2>/dev/null)
+    target=$(printf '%s' "$bead_json" | jq -r 'if type == "array" then .[0].metadata.target else .metadata.target end // empty' 2>/dev/null)
 
     # Only prune branches for closed beads. Rejected or still-open work
     # remains evidence and must stay on disk.
     [ "$status" = "closed" ] || return 1
     [ -z "$rejection_reason" ] || return 1
 
-    # If the remote ref still exists, keep the local ref so the branch can be
-    # fetched or inspected. We only clean up refs that are already remote-gone.
-    if git -C "$rig_path" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
-        return 1
+    # `gc/*` refs are only pruned once their remote ref is gone; polecat refs
+    # may be pruned locally once the bead is closed and the commit is already
+    # represented on the recorded target.
+    if [ "${branch#polecat/}" = "$branch" ]; then
+        if git -C "$rig_path" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
+            return 1
+        fi
     fi
 
     # Use the recorded target if present, otherwise fall back to the default
@@ -85,8 +88,13 @@ while IFS= read -r rig_path; do
     # Fetch and prune remote refs.
     git -C "$rig_path" fetch --prune origin 2>/dev/null || continue
 
-    # List gc/* branches.
-    BRANCHES=$(git -C "$rig_path" branch --list 'gc/*' --format='%(refname:short)' 2>/dev/null) || continue
+    # List gc/* and polecat/* branches.
+    BRANCHES=$(
+        {
+            git -C "$rig_path" branch --list 'gc/*' --format='%(refname:short)'
+            git -C "$rig_path" branch --list 'polecat/*' --format='%(refname:short)'
+        } 2>/dev/null | sort -u
+    ) || continue
     if [ -z "$BRANCHES" ]; then
         continue
     fi
