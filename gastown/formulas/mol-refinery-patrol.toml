@@ -788,7 +788,15 @@ REMOTE=$(git rev-parse origin/$TARGET)
 ```
 If SHAs differ: STOP. Debug and retry. Do NOT continue.
 
-**3. Record merge metadata and close work bead:**
+**3. Arm cleanup for the rest of the direct-merge path:**
+```bash
+trap cleanup_branch EXIT
+```
+Register the cleanup trap after the merge is verified so any later early-exit
+still removes the temp branch, source branch, and merged worktree. The trap is
+idempotent; the explicit cleanup block at the end still runs on success.
+
+**4. Record merge metadata and close work bead:**
 
 Run as a single chained command so the metadata write cannot be skipped
 when the close-reason already names the SHA. Both the `--set-metadata`
@@ -809,7 +817,7 @@ gc bd update $WORK \
 gc bd close $WORK --reason "Merged to $TARGET at $MERGED_SHORT"
 ```
 
-**4. Cleanup — run as a single sequence so interruption cannot strand a branch:**
+**4. Cleanup:**
 ```bash
 git checkout "$TARGET"
 git branch -d temp
@@ -854,7 +862,16 @@ If `--force-with-lease` fails, the existing PR branch moved after your
 fetch. STOP, fetch the latest branch, rebase your temp branch again, and
 retry with `--force-with-lease`. Do not use plain `--force`.
 
-**2. Reuse, create, or discover the pull request:**
+**2. Arm cleanup for the rest of the PR path:**
+```bash
+trap cleanup_temp_only EXIT
+```
+Register the cleanup trap after the push is verified so any later early-exit
+still removes the temp branch and merged worktree cleanup cannot be skipped.
+The trap is idempotent; the explicit cleanup block at the end still runs on
+success.
+
+**3. Reuse, create, or discover the pull request:**
 
 Read the bead's description and notes once and stage them into a PR body
 file (using `--body-file` avoids quoting/encoding hazards with multi-line
@@ -981,7 +998,7 @@ fi
 rm -f "$PR_BODY_FILE"
 ```
 
-**3. Verify the pull request exists:**
+**4. Verify the pull request exists:**
 ```bash
 PR_ERR=$(mktemp)
 PR_INFO=$(lookup_pr_info "$PR_REF" "$PR_ERR")

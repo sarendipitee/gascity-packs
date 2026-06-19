@@ -348,6 +348,7 @@ BODY
 This is a belt-and-suspenders check — self-review should have caught this,
 but we never push with untracked work left behind.
 
+**3. Push your branch:**
 **3. Rebase onto latest target, re-run checks, then push:**
 ```bash
 AUTO_PUSH=$(gc bd show "$WORK_BEAD_ID" --json | jq -r '.[0].metadata | if has("auto_push") then (.auto_push | tostring) else "" end')
@@ -389,6 +390,7 @@ else
     }
 fi
 
+```bash
 git push origin HEAD
 PUSH_EXIT=$?
 if [ $PUSH_EXIT -ne 0 ]; then
