@@ -256,6 +256,15 @@ If rebase SUCCEEDED (exit 0): close this step, proceed to run-tests.
 
 If rebase FAILED (conflicts):
 
+Resolve the conflict yourself when the result is mechanical: combine
+non-overlapping changes, preserve ordering/formatting in generated or
+manifest-like files, update imports/lists/changelogs/snapshots, then continue
+to quality gates and note the resolved paths on the bead.
+
+Do NOT resolve conflicts that require developer judgment: choosing
+behavior/API/schema/migration/UX, rewriting feature logic, or inferring intent
+from broad branch archaeology. In that case, reject to the polecat pool:
+
 1. Abort: `git rebase --abort`
 2. Clean up the existing workflow and reopen the source bead:
 ```bash
@@ -293,7 +302,7 @@ gc bd show $WORK --json | jq -r '.[0].metadata."gc.routed_to"'
    **Only after verifying routing landed**, set the rejection reason:
 ```bash
 gc bd update $WORK \
-  --set-metadata rejection_reason="Conflicts with $TARGET at $(git rev-parse origin/$TARGET)"
+  --set-metadata rejection_reason="Conflicts with $TARGET at $(git rev-parse origin/$TARGET): <conflicted paths and unresolved decision>"
 ```
 4. Do NOT delete the branch (new polecat needs it for conflict resolution).
 5. Clean up temp branch: `git checkout {{target_branch}} && git branch -D temp`
