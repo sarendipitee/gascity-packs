@@ -1,6 +1,6 @@
 ---
 name: blast-radius
-description: Map the full impact surface of a change to gastownhall/gascity before you commit — callers and their execution contexts (startup/tick/reload/CLI/API/shutdown), downward callees and their risky patterns (stale config, swallowed store errors, leaked goroutines), config-field sync chains, the six domain-boundary crossings, concurrency, and cross-repo contracts (gastown/beads). Self-contained — runs on plain git + grep + gh, no internal tooling. Use before committing anything that touches the reconciler, controller, lifecycle, dispatch, config, or any cross-subsystem code, and as Phase 2 of the plan-pr skill.
+description: Map the full impact surface of a change to gastownhall/gascity before you commit — callers and their execution contexts (startup/tick/reload/CLI/API/shutdown), downward callees and their risky patterns (stale config, swallowed store errors, leaked goroutines), config-field sync chains, the domain-boundary crossings, concurrency, and cross-repo contracts (gastown/beads). Self-contained — runs on plain git + grep + gh, no internal tooling. Use before committing anything that touches the reconciler, controller, lifecycle, dispatch, config, or any cross-subsystem code, and as Phase 2 of the plan-pr skill.
 ---
 
 # Map the Blast Radius
@@ -82,7 +82,7 @@ and the pool deep-copy must be checked by hand.
 
 ## Step 5 — Domain-boundary crossings
 
-Check whether the change crosses any of these six boundaries:
+Check whether the change crosses any of these boundaries:
 
 | Boundary | Risk |
 |---|---|

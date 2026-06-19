@@ -1,6 +1,6 @@
 ---
 name: check
-description: Verify a change against gastownhall/gascity's actual quality bar before you push a PR. Runs the mechanical gates (make build + make check + make check-docs if docs touched), classifies test failures as pre-existing noise vs new regressions, and audits the diff against the full Gas City adoption-review checklist (B1-B36) — zero hardcoded roles, ZFC, the Bitter Lesson, the five test tiers, the code conventions, config-nil semantics, store-write errors, timeout isolation, startup-vs-reload safety, goroutine lifecycle, do*/cmd* split, env hermeticity, and more. Self-contained — you (or your coding agent) run every check by reading this skill; no internal tools required. Use before opening any PR to gastownhall/gascity.
+description: Verify a change against gastownhall/gascity's actual quality bar before you push a PR. Runs the mechanical gates (make build + make check + make check-docs if docs touched), classifies test failures as pre-existing noise vs new regressions, and audits the diff against the full Gas City adoption-review checklist (B1-B36) — zero hardcoded roles, ZFC, the Bitter Lesson, the test tiers, the code conventions, config-nil semantics, store-write errors, timeout isolation, startup-vs-reload safety, goroutine lifecycle, do*/cmd* split, env hermeticity, and more. Self-contained — you (or your coding agent) run every check by reading this skill; no internal tools required. Use before opening any PR to gastownhall/gascity.
 ---
 
 # Run the Gas City Codebase Check
@@ -43,8 +43,8 @@ Set scope flags:
 Each depends on the previous being green.
 
 ```bash
-make build        # ~300s timeout
-make check        # ~600s timeout — runs fmt-check, lint, vet, test
+make build        # allow several minutes
+make check        # allow several minutes — runs fmt-check, lint, vet, test
 make check-docs   # only if docs/engdocs touched
 ```
 
@@ -78,7 +78,7 @@ Environment-dependent and race-detector-flaky tests exist; verifying against
 > the active audit is B1–B31 and B33–B36. A complete pass covers every numbered
 > rule below — the absence of a B32 entry is intentional, not a missing check.
 
-Read the diff and check each rule. The rules are grouped into **five review
+Read the diff and check each rule. The rules are grouped into **review
 lenses** — cover all five, not just the ones that feel obvious for your change.
 Each rule names the failure mode and, where useful, the public PR that taught it
 (real precedent you can read).
@@ -112,7 +112,7 @@ packages are peers — no cross-primitive imports. `internal/beads` must not imp
 
 ### Change impact / blast radius (B7, B9–B13, B15–B16, B18, B21, B23, B25–B26, B31, B35–B36)
 
-**B7. Code conventions (11 sub-checks).** Unit tests next to code; `t.TempDir()`;
+**B7. Code conventions.** Unit tests next to code; `t.TempDir()`;
 `//go:build integration` tag on integration tests; cobra/toml usage; atomic file
 writes; no `panic` in library code; error wrapping with `%w`; no role names;
 tmux invoked with `-L <socket>`; agent config field sync; raw string constants
@@ -127,7 +127,7 @@ features or refactoring — note them as out-of-scope instead.
 
 **B11. Config nil semantics.** A new config field where the consumer needs to
 distinguish "not set" from "explicitly empty" must use `*string` (pointer), an
-`Effective*()` accessor, and patch/override updates. (PR #386.)
+`Effective*()` accessor, and patch/override updates.
 
 **B12. Store-write error propagation — retain and retry, never delete and
 succeed.**
@@ -138,29 +138,28 @@ A function returning `bool` after a store write must return `false` on write
 error. In an error handler for a failed store write, never call `store.Delete`,
 `store.CloseAll`, or a successor-state write as "recovery" — return the error or
 set a failure state so callers can retry. Never paper over a store error by
-deleting the source-of-truth record. (PR #480: `SetMetadataBatch` silently
-returned `true` on failure; PR #543: prune-on-error removed records whose
+deleting the source-of-truth record. (e.g. `SetMetadataBatch` silently
+returned `true` on failure; a prune-on-error path removed records whose
 terminal write had failed.)
 
 **B13. Timeout / concurrency isolation.** New timeouts/semaphores must affect
 only the intended subsystem. A shared `shellCommand` path needs splitting. Use
-config constants, not magic numbers. (PR #480.)
+config constants, not magic numbers.
 
 **B15. Infrastructure-agent guards.** Loops iterating agents must exclude
-`control_dispatcher` / infrastructure agents from work-related config. (PR #386.)
+`control_dispatcher` / infrastructure agents from work-related config.
 
 **B16. Startup vs reload safety.** `newCityRuntime` runs at startup only.
 `buildOrderDispatcher` / `update()` run on config reload too. One-time sweeps
 must be startup-only — putting them in a reload path corrupts in-flight state.
-(PR #526.)
 
 **B18. Map-key domain separation.** A map serving multiple consumers (pool +
 named-session) must be filtered before it's passed to each consumer, or keys
-leak across domains. (PR #535.)
+leak across domains.
 
 **B21. Config hot-reload snapshot safety.** Code in the `update()` / `buildStores()`
 chain must use the passed `cfg` parameter, not `cs.cfg` (which is stale during
-reload). (PRs #540, #526.)
+reload).
 
 **B23. Fix-scope completeness + parallel code paths (the #1 adoption-review
 finding).** For an entity with multiple states
@@ -169,12 +168,11 @@ not just the one in your repro. Then: for every function you modified, grep all
 its callers; for every pattern you fixed (a missing nil-guard, a hardcoded
 string, a wrong env lookup), grep the **entire** codebase for sibling instances
 of the same pattern and fix them too. Fixing one call site while identical
-siblings stay broken is the most common reason a PR bounces. (PRs #543, #653,
-#656, #650.)
+siblings stay broken is the most common reason a PR bounces.
 
 **B25. Constant grep radius.** When you introduce or use a named constant, grep
 the entire codebase for the raw string value to find other occurrences that
-should use the constant too — don't limit the search to your diff. (PR #526: a
+should use the constant too — don't limit the search to your diff. (e.g. a
 raw `"order-tracking"` string diverged from the `labelOrderTracking` constant.)
 
 **B26. Golden-snapshot / doc-output drift.** When a change alters user-visible
@@ -185,7 +183,7 @@ stale. **Extension:** the same applies to Go struct field doc comments and
 generated reference docs — when a struct field or exported function changes
 behavior, re-read its doc comment against the implementation; if it feeds
 `cmd/genschema`, run `go run ./cmd/genschema` + `make check-docs` and re-grep
-`docs/reference/` for the stale phrase. (PRs #658, #637, #1482, #1299.)
+`docs/reference/` for the stale phrase.
 
 **B31. Hard-fail conversion → examples audit + release note.** When a fix turns
 silent degradation (default fallback, version downgrade, skipped validation,
@@ -193,7 +191,7 @@ silent success on missing data) into a hard error, anyone relying on the old
 silent behavior will see new failures. (1) Grep `examples/` (especially
 `examples/gastown/city.toml`) for configs that would newly hard-fail and update
 them in the same PR. (2) Flag the behavior change under a `Release note:` heading
-in the PR body. (PR #734.)
+in the PR body.
 
 **B35. Pack-binding qualification on routing/pool stamping.** Anything that
 stamps `gc.routed_to`, names a pool, or routes work by pack binding must use the
@@ -202,31 +200,29 @@ when the binding is empty is also a bug.
 ```bash
 git diff main...HEAD | grep -E 'gc\.routed_to|pool\.Name|PoolName|qualifyPool'
 ```
-(PRs #919, #1010, #1299.)
 
 **B36. Sweeps walk every rig.** Maintenance sweeps, orphan reapers, and
 lifecycle reconcilers must walk every rig in the city, not just HQ. The bug:
 accepting a `cityStore` and only iterating that store, silently skipping
 rig-scoped beads. Verify the loop covers `cfg.Rigs` and that progress counters
-are preserved across the loop, not reset per rig. (PRs #1448, #1010.)
+are preserved across the loop, not reset per rig.
 
 ### Debuggability & operability (B12, B17, B22, B24, B28, B30, B34)
 
 **B17. Goroutine lifecycle (CLI vs server).** CLI commands exit immediately —
 fire-and-forget goroutines die. Return a `<-chan struct{}` completion signal, and
 callers must `defer`-block on the done channel on **all** return paths, not just
-the happy path. (PR #524: both `waitForSession` failure and an early `Attach`
+the happy path. (e.g. both `waitForSession` failure and an early `Attach`
 return leaked a background goroutine.)
 
 **B22. Dead-code audit.** Grep for functions/methods your PR introduces that have
 zero callers — including helpers added "for completeness" (e.g. a `Len()` on a
 wrapper). Diff new `func ` lines, then grep each name across the codebase.
-(PRs #584, #471.)
 
 **B24. Verify-before-delete.** Before pruning/closing/removing a record, verify
 its expected successor/terminal state actually exists in the store
 (`store.Get(id)` → exists check → prune). Fail open: a store-lookup error
-**retains** the record rather than deleting it. (PR #543.)
+**retains** the record rather than deleting it.
 
 **B28. Error-context wrapping.** Every new `return err` / `return fmt.Errorf(...)`
 must name the operation and entity that failed (bead ID, agent name, rig name,
@@ -242,14 +238,14 @@ the top of the read path.
 ```bash
 git diff main...HEAD | grep -E '^\+var [A-Z][a-zA-Z]+ +(bool|int|int64|map)'
 ```
-(Canonical: `internal/formula/compile.go` `formulaV2Enabled atomic.Bool`. PR #734.)
+(Canonical: `internal/formula/compile.go` `formulaV2Enabled atomic.Bool`.)
 
 **B34. Safety-predicate fail-closed.** A boolean predicate used as a safety gate
 (`HasUnpushedCommits`, `HasStashes`, `IsRepo`, `Exists`, `IsClean`, `IsHealthy`)
 must fail **closed** — returning `false` on internal error means "can't
 determine" gets treated as "safe to proceed", which is dangerous for destructive
 ops (prune/remove/reap/delete). Either return `(bool, error)` and propagate, or
-add an explicit precondition probe that fails-closed first. (PR #1482.)
+add an explicit precondition probe that fails-closed first.
 
 ### Test evidence quality (B8, B14, B19–B20, B27, B33)
 
@@ -261,7 +257,7 @@ testscript.
 **B14. Regression-test depth.** A bug fix tests through the full write path and
 reads the state back from the store. Assertions must discriminate the exact bug
 path, and you must test **every** branch the fix introduces (early-exit, timeout,
-error, success), not just the happy path. (PRs #584, #510.)
+error, success), not just the happy path.
 
 **B19. do*()/cmd*() split.** CLI commands split into `cmdFoo()` (wiring) +
 `doFoo()` (pure logic with injected deps), so the logic is unit-testable.
@@ -273,7 +269,7 @@ hand-written fakes next to the interface, with a compile-time
 ```bash
 git diff main...HEAD -- '*_test.go' | grep -nE '\bos\.Setenv\b'
 ```
-Each hit is a finding. (PR #687: a test that didn't clear `GC_BEADS` failed for
+Each hit is a finding. (e.g. a test that didn't clear `GC_BEADS` failed for
 devs with it exported.)
 
 **B27. Polling over fixed sleeps in tests.** New test code uses `waitFor*` /
@@ -283,7 +279,7 @@ sync. The codebase has `waitForCondition`, `waitForFile`, `waitForBeadStatus`,
 ```bash
 git diff main...HEAD -- '*_test.go' | grep -n 'time\.Sleep'
 ```
-Each hit should justify why a polling helper won't work. (PRs #674, #621, #669.)
+Each hit should justify why a polling helper won't work.
 
 **B33. Test save/restore for package-level state.** A test that reads/writes
 package-level mutable state (feature flags, global counters, mode switches) must
@@ -294,7 +290,7 @@ prev := IsFooEnabled()
 SetFooEnabled(true)
 t.Cleanup(func() { SetFooEnabled(prev) })
 ```
-Hardcoded-`false` cleanup corrupts later tests that run with the flag on. (PR #734.)
+Hardcoded-`false` cleanup corrupts later tests that run with the flag on.
 
 ### Portability (B29)
 
@@ -308,7 +304,7 @@ overwrites stale ambient `GC_DOLT_HOST/PORT`), not inlined into command handlers
 git diff main...HEAD | grep -E 'os\.Getenv|os\.LookupEnv'
 ```
 Trace each new read: could it be inherited from a parent `gc` with a conflicting
-value? (PR #687, env-projection extraction PR #790.)
+value?
 
 ## Part C — Report
 

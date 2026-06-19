@@ -53,8 +53,10 @@ and your time is wasted.
 # Accepted / Implementing design docs:
 grep -lE "^\| Status \|.*\b(Accepted|Implementing|Implemented)\b" engdocs/design/*.md
 
-# Open maintainer PRs consolidating the area:
-gh pr list --repo gastownhall/gascity --state open --search "unification refactor phase boundary" --json number,title
+# Open maintainer PRs consolidating your target area (substitute a keyword
+# from the subsystem you're touching; skim hits for any that unify/refactor/
+# supersede it):
+gh pr list --repo gastownhall/gascity --state open --search "<your-subsystem-keyword> in:title" --json number,title
 
 # Recently-merged PRs that used "Supersedes" (the area is being consolidated):
 gh pr list --repo gastownhall/gascity --state merged --search "supersedes in:body" --limit 5 --json number,title
@@ -70,8 +72,8 @@ PR touching it, STOP** and choose one of:
 
 Read the relevant design doc before writing any code. Its `Status` field and
 `## Phase N` headings tell you which parts are live and which are queued; a fix
-landing in a queued phase won't survive rebase. (Gas City precedent: PR #666
-superseded eight narrow session-model PRs; PR #790 superseded two env-projection
+landing in a queued phase won't survive rebase. (Gas City precedent: a single broad refactor
+superseded eight narrow session-model PRs; another superseded two env-projection
 PRs.)
 
 ## Phase 2 — Blast radius
@@ -257,8 +259,7 @@ Risks:
 
 ## Phase 5 — What the maintainer will check
 
-Gas City adoption reviews run a multi-model pass (Claude + Codex, sometimes
-Gemini) and consistently flag these. Address them proactively — each maps to a
+Gas City adoption reviews run a multi-model automated pass and consistently flag these. Address them proactively — each maps to a
 B-rule in [`check`](../check/SKILL.md):
 
 1. **Silent error handling** — `_ = store.Write()` or a `bool` return that doesn't fire `false` on write error (B12)
