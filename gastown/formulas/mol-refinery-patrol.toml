@@ -119,7 +119,7 @@ description = """
 
 If context feels heavy (multi-hour session, large recent diffs, or you notice
 yourself taking shortcuts or summarizing prematurely), pour and assign the next
-wisp, burn the current wisp, then request a restart:
+wisp, burn the current wisp, then drain-ack and exit:
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
 if [ -z "$CURRENT_WISP" ]; then
@@ -127,34 +127,32 @@ if [ -z "$CURRENT_WISP" ]; then
 fi
 NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{target_branch}} --var rig_name={{rig_name}} --var binding_prefix={{binding_prefix}} --json | jq -r '.new_epic_id // empty')
 if [ -z "$NEXT" ]; then
-  echo "Could not pour next refinery wisp; not requesting restart."
+  echo "Could not pour next refinery wisp; not draining."
   gc runtime drain-ack
   exit 1
 fi
 if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then
-  echo "Could not assign next refinery wisp; not requesting restart."
+  echo "Could not assign next refinery wisp; not draining."
   gc runtime drain-ack
   exit 1
 fi
 if [ -n "$CURRENT_WISP" ]; then
   gc bd mol burn "$CURRENT_WISP" --force
 else
-  echo "Could not resolve current wisp; not requesting restart."
+  echo "Could not resolve current wisp; not draining."
   gc runtime drain-ack
   exit 1
 fi
-gc runtime request-restart
-RESTART_STATUS=$?
-echo "Restart request returned with status $RESTART_STATUS; stop this session now."
-exit "$RESTART_STATUS"
+gc runtime drain-ack
+echo "Drain-ack returned; stop this session now."
+exit 0
 ```
-This sets `GC_RESTART_REQUESTED` metadata on the session and blocks until the
-controller stops this session; on controller fault it can return nonzero after
-a bounded timeout. If the command returns for any reason, stop immediately. Do
-not check mail, close this step, or process merge work from this old session
-after burning the current wisp. On the normal path, the controller kills and
-restarts the session on the next reconcile tick. The new session wakes on the
-wisp you just assigned and re-reads formula steps with fresh context.
+This drains the session through the controller-supported shutdown path. For
+named/on-demand refinery sessions, drain-ack is the supported shutdown path.
+If drain-ack returns for any reason, stop immediately. Do not check mail,
+close this step, or process merge work from this old session after burning
+the current wisp. The next assigned wisp will be picked up by a fresh
+refinery session on the next reconcile cycle.
 
 **2. Check mail:**
 ```bash
