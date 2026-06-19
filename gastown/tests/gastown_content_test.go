@@ -983,75 +983,37 @@ func TestRefineryPatrolRestartGuidanceAssignsSuccessor(t *testing.T) {
 
 	promptBody := string(promptData)
 	formulaBody := string(formulaData)
-	promptRestart := sectionBetween(t, promptBody, "### 2. Request restart on heavy context", "\n---\n\n## Startup")
+	promptRestart := sectionBetween(t, promptBody, "### 2. Drain and exit on heavy context", "\n---\n\n## Startup")
 	formulaRestart := sectionBetween(t, formulaBody, `id = "check-inbox"`, "[[steps]]\nid = \"find-work\"")
 
-	checks := []struct {
-		name      string
-		body      string
-		wantOrder []string
+	for _, check := range []struct {
+		name string
+		body string
 	}{
-		{
-			name: "prompt",
-			body: promptRestart,
-			wantOrder: []string{
-				`CURRENT_WISP=${GC_BEAD_ID:-}`,
-				`if [ -z "$CURRENT_WISP" ]; then`,
-				`CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --type=wisp --limit=1 --json | jq -r '.[0].id // empty')`,
-				`fi`,
-				`NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{ .DefaultBranch }} --var rig_name={{ .RigName }} --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id // empty')`,
-				`if [ -z "$NEXT" ]; then`,
-				`echo "Could not pour next refinery wisp; not requesting restart."`,
-				`exit 1`,
-				`if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then`,
-				`echo "Could not assign next refinery wisp; not requesting restart."`,
-				`exit 1`,
-				`if [ -n "$CURRENT_WISP" ]; then`,
-				`gc bd mol burn "$CURRENT_WISP" --force`,
-				`else`,
-				`echo "Could not resolve current wisp; not requesting restart."`,
-				`exit 1`,
-				`fi`,
-				`gc runtime request-restart`,
-				`RESTART_STATUS=$?`,
-				`exit "$RESTART_STATUS"`,
-			},
-		},
-		{
-			name: "formula",
-			body: formulaRestart,
-			wantOrder: []string{
-				`CURRENT_WISP=${GC_BEAD_ID:-}`,
-				`if [ -z "$CURRENT_WISP" ]; then`,
-				`CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --type=wisp --limit=1 --json | jq -r '.[0].id // empty')`,
-				`fi`,
-				`NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{target_branch}} --var rig_name={{rig_name}} --var binding_prefix={{binding_prefix}} --json | jq -r '.new_epic_id // empty')`,
-				`if [ -z "$NEXT" ]; then`,
-				`echo "Could not pour next refinery wisp; not requesting restart."`,
-				`exit 1`,
-				`if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then`,
-				`echo "Could not assign next refinery wisp; not requesting restart."`,
-				`exit 1`,
-				`if [ -n "$CURRENT_WISP" ]; then`,
-				`gc bd mol burn "$CURRENT_WISP" --force`,
-				`else`,
-				`echo "Could not resolve current wisp; not requesting restart."`,
-				`exit 1`,
-				`fi`,
-				`gc runtime request-restart`,
-				`RESTART_STATUS=$?`,
-				`exit "$RESTART_STATUS"`,
-			},
-		},
-	}
-	for _, check := range checks {
-		assertContainsInOrder(t, check.body, check.wantOrder...)
+		{name: "prompt", body: promptRestart},
+		{name: "formula", body: formulaRestart},
+	} {
+		for _, want := range []string{
+			`CURRENT_WISP=${GC_BEAD_ID:-}`,
+			`NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only`,
+			`echo "Could not pour next refinery wisp; not draining."`,
+			`echo "Could not assign next refinery wisp; not draining."`,
+			`echo "Could not resolve current wisp; not draining."`,
+			`gc runtime drain-ack`,
+			`echo "Drain-ack returned; stop this session now."`,
+			`exit 0`,
+		} {
+			if !strings.Contains(check.body, want) {
+				t.Fatalf("%s restart guidance missing %q", check.name, want)
+			}
+		}
 		for _, bad := range []string{
 			`ps -o rss= -p $$`,
 			`RSS_MB > 1500`,
 			`blocks forever`,
 			`<wisp-id>`,
 			`<this-wisp-id>`,
+			`request-restart`,
 		} {
 			if strings.Contains(check.body, bad) {
 				t.Errorf("%s restart guidance still contains %q", check.name, bad)
@@ -1059,7 +1021,7 @@ func TestRefineryPatrolRestartGuidanceAssignsSuccessor(t *testing.T) {
 		}
 	}
 
-	patrolLifecycle := sectionBetween(t, promptBody, "### 1. ALWAYS pour the next wisp before burning the current one", "### 2. Request restart on heavy context")
+	patrolLifecycle := sectionBetween(t, promptBody, "### 1. ALWAYS pour the next wisp before burning the current one", "### 2. Drain and exit on heavy context")
 	assertContainsInOrder(t, patrolLifecycle,
 		`CURRENT_WISP=${GC_BEAD_ID:-}`,
 		`if [ -z "$CURRENT_WISP" ]; then`,
@@ -1085,6 +1047,9 @@ func TestRefineryPatrolRestartGuidanceAssignsSuccessor(t *testing.T) {
 	)
 	if strings.Contains(patrolLifecycle, "returns early after a brief check") {
 		t.Fatal("refinery prompt still tells an empty successor wisp to return early")
+	}
+	if strings.Contains(patrolLifecycle, "request restart") {
+		t.Fatal("refinery prompt still tells named sessions to request restart")
 	}
 	assertCurrentWispBurnsGuarded(t, "refinery prompt", promptBody)
 	assertCurrentWispBurnsGuarded(t, "refinery formula", formulaBody)

@@ -104,12 +104,12 @@ scan idle indefinitely. Whole-rig merge throughput depends on this contract.
 message and stopping without pouring next. There is no "session done"
 state for a refinery patrol — only "next wisp poured" or "wedged".
 
-### 2. Request restart on heavy context
+### 2. Drain and exit on heavy context
 
 At the start of every wisp, before any merge work, assess whether context feels
 heavy: multi-hour session, large recent diffs, or noticing yourself taking
 shortcuts or summarizing prematurely. If context feels heavy, then **pour and
-assign the next wisp, burn the current wisp, THEN request restart**:
+assign the next wisp, burn the current wisp, THEN drain-ack and exit**:
 
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
@@ -118,34 +118,30 @@ if [ -z "$CURRENT_WISP" ]; then
 fi
 NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{ .DefaultBranch }} --var rig_name={{ .RigName }} --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id // empty')
 if [ -z "$NEXT" ]; then
-  echo "Could not pour next refinery wisp; not requesting restart."
+  echo "Could not pour next refinery wisp; not draining."
   exit 1
 fi
 if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then
-  echo "Could not assign next refinery wisp; not requesting restart."
+  echo "Could not assign next refinery wisp; not draining."
   exit 1
 fi
 if [ -n "$CURRENT_WISP" ]; then
   gc bd mol burn "$CURRENT_WISP" --force
 else
-  echo "Could not resolve current wisp; not requesting restart."
+  echo "Could not resolve current wisp; not draining."
   exit 1
 fi
-gc runtime request-restart
-RESTART_STATUS=$?
-echo "Restart request returned with status $RESTART_STATUS; stop this session now."
-exit "$RESTART_STATUS"
+gc runtime drain-ack
+echo "Drain-ack returned; stop this session now."
+exit 0
 ```
 
-`gc runtime request-restart` sets `GC_RESTART_REQUESTED` metadata and blocks
-until the controller stops this session; on controller fault it can return
-nonzero after a bounded timeout. If it returns for any reason, stop immediately
-from this old session. Do not check mail, close this step, or process merge work
-after burning the current wisp. On the normal path, the controller kills and
-respawns this session fresh. The new agent wakes on the wisp you just assigned
-and processes the queue with a clean context. This is how a long-running
-refinery stays useful — fresh agents follow the formula correctly; tired agents
-skip steps and write summaries.
+`gc runtime drain-ack` tells the controller this session is finished. For
+named/on-demand refinery sessions, drain-ack is the supported shutdown path.
+If drain-ack returns for any reason, stop immediately from this old session.
+Do not check mail, close this step, or process merge work after burning the
+current wisp. The next assigned wisp will be picked up by a fresh refinery
+session on the next reconcile cycle.
 
 ---
 
