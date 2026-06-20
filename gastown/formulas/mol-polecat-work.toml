@@ -470,7 +470,7 @@ picks it up and resumes from the existing branch.
 ```bash
 REFINERY_TARGET="${GC_RIG:+$GC_RIG/}{{binding_prefix}}refinery"
 gc session wake "$REFINERY_TARGET" || true
-gc session nudge "$REFINERY_TARGET" "Run 'gc prime' to check merge queue and begin processing." || true
+gc session nudge "$REFINERY_TARGET" "New bead submitted to merge queue — scan for assigned work and process it now." || true
 ```
 
 The `gc bd update` in step 6 generates a `bead.updated` event the refinery's
