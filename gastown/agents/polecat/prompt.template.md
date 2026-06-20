@@ -295,7 +295,7 @@ gc bd update <work-bead> \
 REFINERY_TARGET="${GC_RIG:+$GC_RIG/}{{ .BindingPrefix }}refinery"
 gc bd update <work-bead> --status=open --assignee="$REFINERY_TARGET" --set-metadata gc.routed_to=""
 gc session wake "$REFINERY_TARGET" || true
-gc session nudge "$REFINERY_TARGET" "Run 'gc prime' to check merge queue and begin processing." || true
+gc session nudge "$REFINERY_TARGET" "New bead submitted to merge queue — scan for assigned work and process it now." || true
 gc runtime drain-ack
 exit
 ```

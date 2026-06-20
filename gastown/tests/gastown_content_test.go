@@ -1181,7 +1181,7 @@ func TestPolecatFormulaSignalsRefineryAfterReassign(t *testing.T) {
 	}
 	body := string(data)
 	refineryTarget := `REFINERY_TARGET="${GC_RIG:+$GC_RIG/}{{binding_prefix}}refinery"`
-	nudge := `gc session nudge "$REFINERY_TARGET" "Run 'gc prime' to check merge queue and begin processing." || true`
+	nudge := `gc session nudge "$REFINERY_TARGET" "New bead submitted to merge queue — scan for assigned work and process it now." || true`
 
 	assertContainsInOrder(t, body,
 		refineryTarget,
@@ -1287,7 +1287,7 @@ func TestPolecatPromptDoneSequenceSignalsRefinery(t *testing.T) {
 		"## FINAL REMINDER: RUN THE DONE SEQUENCE",
 		`REFINERY_TARGET="${GC_RIG:+$GC_RIG/}{{ .BindingPrefix }}refinery"`,
 		`gc session wake "$REFINERY_TARGET" || true`,
-		`gc session nudge "$REFINERY_TARGET" "Run 'gc prime' to check merge queue and begin processing." || true`,
+		`gc session nudge "$REFINERY_TARGET" "New bead submitted to merge queue — scan for assigned work and process it now." || true`,
 		`gc runtime drain-ack`,
 	)
 	if !strings.Contains(body, "Done sequence (push, set metadata, reassign, wake refinery, nudge refinery, `gc runtime drain-ack`, exit)") {
