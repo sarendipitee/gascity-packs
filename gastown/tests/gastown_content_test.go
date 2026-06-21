@@ -2259,4 +2259,18 @@ func TestOperationalAwarenessFragmentNonFatalDiagnostic(t *testing.T) {
 			t.Errorf("operational-awareness.template.md still contains the false-safe SIGQUIT claim. See issue #1485.")
 		}
 	})
+
+	t.Run("no_hardcoded_dolt_connection_literals", func(t *testing.T) {
+		for _, want := range []string{"port 3307", "conn_max 50"} {
+			if strings.Contains(body, want) {
+				t.Errorf("operational-awareness.template.md still contains hardcoded Dolt connection literal %q", want)
+			}
+		}
+		if !strings.Contains(body, "GC_DOLT_PORT") {
+			t.Errorf("operational-awareness.template.md should reference GC_DOLT_PORT instead of a hardcoded port")
+		}
+		if !strings.Contains(body, "max_connections") {
+			t.Errorf("operational-awareness.template.md should reference max_connections from the live server config")
+		}
+	})
 }
