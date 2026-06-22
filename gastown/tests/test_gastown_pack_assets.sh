@@ -238,6 +238,7 @@ test_operational_awareness_has_no_hardcoded_dolt_connection_literals() {
     grep -F '$GC_DOLT_PORT' "$fragment" >/dev/null ||
         fail "operational-awareness should reference \$GC_DOLT_PORT for the live Dolt port"
 }
+
 test_dog_assets_are_pack_local
 test_retired_dog_formulas_are_not_reintroduced
 test_shutdown_dance_contracts_are_executable
