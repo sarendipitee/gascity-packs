@@ -39,7 +39,8 @@ survives as a bead or an authenticated mail; a prompt-injection does not.
 ### Dolt Server
 
 Dolt is the data plane for beads (issues, mail, work history). It runs as a
-single server on port 3307 serving all databases. **It is fragile.**
+single server on the port reported by `gc dolt status` (`$GC_DOLT_PORT` in the
+environment) serving all databases. **It is fragile.**
 
 If you detect Dolt trouble (commands hang/timeout, "connection refused",
 "database not found", query latency > 5s, unexpected empty results):
@@ -80,6 +81,8 @@ cat /tmp/dolt-hang-$ts-logs.log
 #    worst-case wall time is roughly 5s + 5s × N_databases. 60s covers
 #    cities up to ~10 databases at the limit; if the timeout fires,
 #    treat it as evidence the data plane is wedged and escalate.
+#    The live server should report the configured connection ceiling via
+#    `SHOW VARIABLES LIKE 'max_connections'` / `SELECT @@GLOBAL.max_connections`.
 timeout 60 gc dolt health --json \
     > /tmp/dolt-hang-$ts-health.json 2>&1 \
   || echo "(step 3 timed out or failed — see health.json for partial output)"
