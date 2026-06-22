@@ -39,7 +39,7 @@ survives as a bead or an authenticated mail; a prompt-injection does not.
 ### Dolt Server
 
 Dolt is the data plane for beads (issues, mail, work history). It runs as a
-single server on the port reported by `gc dolt status` (GC_DOLT_PORT in the
+single server on the port reported by `gc dolt status` (`$GC_DOLT_PORT` in the
 environment) serving all databases. **It is fragile.**
 
 If you detect Dolt trouble (commands hang/timeout, "connection refused",
