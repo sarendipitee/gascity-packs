@@ -243,14 +243,10 @@ func TestPackTomlParses(t *testing.T) {
 		t.Errorf("[pack] schema = %d, want 2", tc.Pack.Schema)
 	}
 	if len(tc.Pack.Includes) != 0 {
-		t.Fatalf("pack includes = %v, want empty (migrated to [imports.maintenance])", tc.Pack.Includes)
+		t.Fatalf("pack includes = %v, want empty (builtin core is included from city.toml)", tc.Pack.Includes)
 	}
-	maintImp, ok := tc.Imports["maintenance"]
-	if !ok {
-		t.Fatalf("pack imports = %v, want entry for \"maintenance\"", tc.Imports)
-	}
-	if maintImp.Source != "../maintenance" {
-		t.Errorf("pack imports[\"maintenance\"].Source = %q, want %q", maintImp.Source, "../maintenance")
+	if _, ok := tc.Imports["maintenance"]; ok {
+		t.Fatalf("pack imports = %v, want no retired maintenance import", tc.Imports)
 	}
 }
 
@@ -433,10 +429,10 @@ func TestRefineryFormulaChainsMergeMetadataWithClose(t *testing.T) {
 	// Direct-merge path.
 	assertContainsInOrder(t, body,
 		"--set-metadata merge_result=merged",
-		"--set-metadata merged_sha=$MERGED_SHA",
-		"--set-metadata merged_target=$TARGET",
+		`--set-metadata merged_sha="$MERGED_SHA"`,
+		`--set-metadata merged_target="$TARGET"`,
 		"--unset-metadata rejection_reason &&",
-		`gc bd close $WORK --reason "Merged to $TARGET at $MERGED_SHORT"`,
+		`gc bd close "$WORK" --reason "Merged to $TARGET at $MERGED_SHORT"`,
 	)
 
 	// mr/pr handoff path.
@@ -1076,8 +1072,8 @@ func TestRefineryFormulaDeletesMergedWorktrees(t *testing.T) {
 	desc := refineryMergePushDescription(t)
 
 	t.Run("direct_merge_cleanup", func(t *testing.T) {
-		// Extract the direct merge cleanup section (between "**4. Cleanup:**" and "**If MERGE_STRATEGY = \"mr\":**")
-		directStart := strings.Index(desc, "**4. Cleanup:**")
+		// Extract the direct merge cleanup section (between the direct cleanup heading and "**If MERGE_STRATEGY = \"mr\":**")
+		directStart := strings.Index(desc, "**2. Cleanup")
 		if directStart == -1 {
 			t.Fatal("merge-push description missing direct merge cleanup section")
 		}
@@ -1213,7 +1209,7 @@ func TestPolecatFormulaSubmitHasBranchShapeGate(t *testing.T) {
 		`gc runtime drain-ack`,
 		`exit 1`,
 		"**2. Final clean-state verification (safeguard):**",
-		"**3. Push your branch:**",
+		"**3. Rebase onto latest target, re-run checks, then push:**",
 	)
 
 	assertContainsInOrder(t, body,
@@ -1235,7 +1231,7 @@ func TestPolecatFormulaHaltsOnAutoPushFalse(t *testing.T) {
 	submit := sectionBetween(t, body, `id = "submit-and-exit"`, "The refinery will pick this up")
 
 	assertContainsInOrder(t, submit,
-		"Push your branch:",
+		"Rebase onto latest target, re-run checks, then push:",
 		`AUTO_PUSH=$(gc bd show "$WORK_BEAD_ID" --json | jq -r '.[0].metadata | if has("auto_push") then (.auto_push | tostring) else "" end')`,
 		`if [ "$AUTO_PUSH" = "false" ]; then`,
 		`BRANCH=$(git branch --show-current)`,
