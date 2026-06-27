@@ -123,7 +123,12 @@ wisp, burn the current wisp, then drain-ack and exit:
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
 if [ -z "$CURRENT_WISP" ]; then
-  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json | jq -r '[.[] | select((.ephemeral // false) == true) | select((.issue_type // .type // "") == "molecule") | select((.title // "") == "mol-refinery-patrol")][0].id // empty')
+  # Patrol wisps are ephemeral and poured with status=open (never in_progress);
+  # `gc bd list` does not surface ephemeral beads, so resolve via `gc bd query`.
+  # Without this the burn below silently no-ops and a wisp leaks each idle cycle
+  # (gcp-i0z). Pick the newest matching wisp for this agent.
+  CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=open' --limit=0 2>/dev/null \
+    | jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee==$agent) | select(.title=="mol-refinery-patrol")] | sort_by(.created_at // "") | .[-1].id // empty')
 fi
 NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{target_branch}} --var rig_name={{rig_name}} --var binding_prefix={{binding_prefix}} --json | jq -r '.new_epic_id // empty')
 if [ -z "$NEXT" ]; then
@@ -195,7 +200,12 @@ Pour the next patrol iteration and transition before exiting:
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
 if [ -z "$CURRENT_WISP" ]; then
-  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json | jq -r '[.[] | select((.ephemeral // false) == true) | select((.issue_type // .type // "") == "molecule") | select((.title // "") == "mol-refinery-patrol")][0].id // empty')
+  # Patrol wisps are ephemeral and poured with status=open (never in_progress);
+  # `gc bd list` does not surface ephemeral beads, so resolve via `gc bd query`.
+  # Without this the burn below silently no-ops and a wisp leaks each idle cycle
+  # (gcp-i0z). Pick the newest matching wisp for this agent.
+  CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=open' --limit=0 2>/dev/null \
+    | jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee==$agent) | select(.title=="mol-refinery-patrol")] | sort_by(.created_at // "") | .[-1].id // empty')
 fi
 NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{target_branch}} --var rig_name={{rig_name}} --var binding_prefix={{binding_prefix}} --json | jq -r '.new_epic_id // empty')
 if [ -z "$NEXT" ]; then
@@ -308,7 +318,12 @@ gc bd update $WORK \
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
 if [ -z "$CURRENT_WISP" ]; then
-  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json | jq -r '[.[] | select((.ephemeral // false) == true) | select((.issue_type // .type // "") == "molecule") | select((.title // "") == "mol-refinery-patrol")][0].id // empty')
+  # Patrol wisps are ephemeral and poured with status=open (never in_progress);
+  # `gc bd list` does not surface ephemeral beads, so resolve via `gc bd query`.
+  # Without this the burn below silently no-ops and a wisp leaks each idle cycle
+  # (gcp-i0z). Pick the newest matching wisp for this agent.
+  CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=open' --limit=0 2>/dev/null \
+    | jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee==$agent) | select(.title=="mol-refinery-patrol")] | sort_by(.created_at // "") | .[-1].id // empty')
 fi
 NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{target_branch}} --var rig_name={{rig_name}} --var binding_prefix={{binding_prefix}} --json | jq -r '.new_epic_id // empty')
 if [ -z "$NEXT" ]; then
@@ -435,7 +450,12 @@ TARGET=$(gc bd show $WORK --json | jq -r '.[0].metadata.target // "{{target_bran
      ```bash
      CURRENT_WISP=${GC_BEAD_ID:-}
      if [ -z "$CURRENT_WISP" ]; then
-       CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json | jq -r '[.[] | select((.ephemeral // false) == true) | select((.issue_type // .type // "") == "molecule") | select((.title // "") == "mol-refinery-patrol")][0].id // empty')
+       # Patrol wisps are ephemeral and poured with status=open (never in_progress);
+       # `gc bd list` does not surface ephemeral beads, so resolve via `gc bd query`.
+       # Without this the burn below silently no-ops and a wisp leaks each idle cycle
+       # (gcp-i0z). Pick the newest matching wisp for this agent.
+       CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=open' --limit=0 2>/dev/null \
+         | jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee==$agent) | select(.title=="mol-refinery-patrol")] | sort_by(.created_at // "") | .[-1].id // empty')
      fi
      NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{target_branch}} --var rig_name={{rig_name}} --var binding_prefix={{binding_prefix}} --json | jq -r '.new_epic_id // empty')
      if [ -z "$NEXT" ]; then
@@ -527,7 +547,12 @@ block_existing_pr() {
   Target: $TARGET"
   CURRENT_WISP=${GC_BEAD_ID:-}
   if [ -z "$CURRENT_WISP" ]; then
-    CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json | jq -r '[.[] | select((.ephemeral // false) == true) | select((.issue_type // .type // "") == "molecule") | select((.title // "") == "mol-refinery-patrol")][0].id // empty')
+    # Patrol wisps are ephemeral and poured with status=open (never in_progress);
+    # `gc bd list` does not surface ephemeral beads, so resolve via `gc bd query`.
+    # Without this the burn below silently no-ops and a wisp leaks each idle cycle
+    # (gcp-i0z). Pick the newest matching wisp for this agent.
+    CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=open' --limit=0 2>/dev/null \
+      | jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee==$agent) | select(.title=="mol-refinery-patrol")] | sort_by(.created_at // "") | .[-1].id // empty')
   fi
   if [ -z "$CURRENT_WISP" ]; then
     echo "Could not resolve current wisp; not burning."
@@ -1247,7 +1272,12 @@ If auto_land = "false": skip this entirely.
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
 if [ -z "$CURRENT_WISP" ]; then
-  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --json | jq -r '[.[] | select((.ephemeral // false) == true) | select((.issue_type // .type // "") == "molecule") | select((.title // "") == "mol-refinery-patrol")][0].id // empty')
+  # Patrol wisps are ephemeral and poured with status=open (never in_progress);
+  # `gc bd list` does not surface ephemeral beads, so resolve via `gc bd query`.
+  # Without this the burn below silently no-ops and a wisp leaks each idle cycle
+  # (gcp-i0z). Pick the newest matching wisp for this agent.
+  CURRENT_WISP=$(gc bd query --json 'ephemeral=true AND status=open' --limit=0 2>/dev/null \
+    | jq -r --arg agent "$GC_AGENT" '[.[] | select(.assignee==$agent) | select(.title=="mol-refinery-patrol")] | sort_by(.created_at // "") | .[-1].id // empty')
 fi
 NEXT=$(gc bd mol wisp mol-refinery-patrol --root-only --var target_branch={{target_branch}} --var rig_name={{rig_name}} --var binding_prefix={{binding_prefix}} --json | jq -r '.new_epic_id // empty')
 if [ -z "$NEXT" ]; then
