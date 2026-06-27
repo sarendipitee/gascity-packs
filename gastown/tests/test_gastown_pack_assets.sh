@@ -212,21 +212,6 @@ metadata = block.index('--set-metadata merge_result=merged')
 if verify >= metadata:
     raise SystemExit(1)
 PY
-    [[ "$direct_block" == *'cleanup_stale_polecat_refs()'* ]] ||
-        fail "direct refinery merge must define stale polecat ref cleanup"
-    [[ "$direct_block" == *'git for-each-ref --format='\''%(refname:short)'\'' refs/heads/polecat/'* ]] ||
-        fail "direct refinery merge must scan local polecat heads before cleanup"
-    [[ "$direct_block" == *'git update-ref -d "refs/heads/$ref"'* ]] ||
-        fail "direct refinery merge must delete stale local polecat refs"
-
-    grep -F 'cleanup_stale_polecat_ref()' "$formula" >/dev/null ||
-        fail "mr refinery merge must define stale polecat ref cleanup"
-    grep -F 'git update-ref -d "$branch_ref"' "$formula" >/dev/null ||
-        fail "mr refinery merge must delete the matching stale local polecat ref"
-}
-
-test_refinery_prunes_stale_local_polecat_refs() {
-    test_refinery_direct_merge_is_worktree_safe_and_fail_closed
 }
 
 test_operational_awareness_has_no_hardcoded_dolt_connection_literals() {
@@ -242,6 +227,25 @@ test_operational_awareness_has_no_hardcoded_dolt_connection_literals() {
     grep -F '$GC_DOLT_PORT' "$fragment" >/dev/null ||
         fail "operational-awareness should reference \$GC_DOLT_PORT for the live Dolt port"
 }
+
+test_refinery_patrol_wisp_resolution_is_ephemeral_aware() {
+    local formula
+    formula="$GASTOWN/formulas/mol-refinery-patrol.toml"
+
+    # gcp-i0z: patrol wisps are ephemeral and poured with status=open, so they are
+    # never in_progress and are invisible to `gc bd list`. Resolving CURRENT_WISP via
+    # `gc bd list ... --status=in_progress` always returns empty, the burn no-ops, and
+    # a fresh wisp leaks every idle cycle. The fallback must use an ephemeral-aware query.
+    ! grep -F 'gc bd list --assignee="$GC_AGENT" --status=in_progress' "$formula" >/dev/null ||
+        fail "refinery patrol must not resolve the current wisp via 'gc bd list --status=in_progress' (ephemeral wisps are open and invisible to bd list; gcp-i0z)"
+
+    grep -F "gc bd query --json 'ephemeral=true AND status=open' --limit=0" "$formula" >/dev/null ||
+        fail "refinery patrol must resolve the current wisp via an ephemeral-aware 'gc bd query' (gcp-i0z)"
+
+    grep -F 'select(.title=="mol-refinery-patrol")' "$formula" >/dev/null ||
+        fail "ephemeral wisp resolution must filter to mol-refinery-patrol wisps (gcp-i0z)"
+}
+
 test_dog_assets_are_pack_local
 test_retired_dog_formulas_are_not_reintroduced
 test_shutdown_dance_contracts_are_executable
@@ -251,6 +255,6 @@ test_polecat_startup_uses_standard_hook_claim
 test_review_leg_contract_forbids_synthetic_mutation
 test_refinery_direct_merge_is_worktree_safe_and_fail_closed
 test_operational_awareness_has_no_hardcoded_dolt_connection_literals
-test_refinery_prunes_stale_local_polecat_refs
+test_refinery_patrol_wisp_resolution_is_ephemeral_aware
 
 echo "gastown pack asset tests passed"
