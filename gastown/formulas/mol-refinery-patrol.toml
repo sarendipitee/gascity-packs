@@ -553,6 +553,18 @@ requeue_unverified_merge() {
   exit 1
 }
 
+branch_missing_patches() {
+  # Post-push merge verifier. `git cherry <target> <branch>` lists commits
+  # from <branch> whose patch-id is missing from <target>. Empty output means
+  # every source-branch patch landed on target, even if the rebase rewrote
+  # commit SHAs. Any "+" line after push means the close-as-merged claim would
+  # be false, so the caller must halt before bead close or branch reap.
+  bmp_target="$1"
+  bmp_branch="$2"
+  bmp_raw=$(git cherry "$bmp_target" "$bmp_branch" 2>/dev/null) || return 1
+  printf '%s\n' "$bmp_raw" | sed -n 's/^+ //p'
+}
+
 halt_false_completion() {
   # branch_has_real_change tripped: a close-as-merged would assert "work was
   # merged" for a branch that merges to a no-op, which is definitionally
@@ -572,6 +584,25 @@ halt_false_completion() {
   gc session nudge "${GC_RIG:+$GC_RIG/}{{binding_prefix}}witness" "FALSE-COMPLETION HALT: $WORK — branch $fc_branch no verified change vs $fc_base; refused close-as-merged."
   echo "REFUSED close-as-merged: $WORK branch $fc_branch introduces no real change vs $fc_base."
   echo "STOP. Bead left blocked + escalated to mayor/witness. NEVER silent retry."
+  gc runtime drain-ack
+  exit 1
+}
+
+halt_unverified_merge() {
+  vum_target="$1"
+  vum_branch="$2"
+  vum_missing="$3"
+  vum_reason="post-push verification failed: $vum_target is missing patches from $vum_branch: $vum_missing"
+  gc bd update $WORK \
+    --status=blocked \
+    --assignee="" \
+    --set-metadata merge_result=verification_failed \
+    --set-metadata merged_target="$TARGET" \
+    --set-metadata blocked_reason="$vum_reason"
+  gc session nudge mayor "MERGE VERIFICATION FAILED: $WORK — $vum_reason. Bead left blocked; source branch preserved for debug."
+  gc session nudge "${GC_RIG:+$GC_RIG/}{{binding_prefix}}witness" "MERGE VERIFICATION FAILED: $WORK — $vum_reason."
+  echo "MERGE VERIFICATION FAILED: $vum_reason"
+  echo "STOP. Do not close bead. Do not reap branch."
   gc runtime drain-ack
   exit 1
 }
@@ -800,6 +831,14 @@ if [ "$MERGED_SHA" != "$REMOTE" ]; then
   gc runtime drain-ack
   exit 1
 fi
+MISSING_PATCHES=$(branch_missing_patches "origin/$TARGET" "origin/$BRANCH") || {
+  echo "POST-PUSH VERIFICATION FAILED — could not compare origin/$TARGET to origin/$BRANCH. STOP. Do not mutate bead state."
+  gc runtime drain-ack
+  exit 1
+}
+if [ -n "$MISSING_PATCHES" ]; then
+  halt_unverified_merge "origin/$TARGET" "origin/$BRANCH" "$MISSING_PATCHES"
+fi
 
 if POST_PUSH_MISSING=$(branch_patches_missing_from_target "origin/$TARGET" "origin/$BRANCH"); then
   POST_PUSH_STATUS=0
@@ -829,6 +868,12 @@ closed bead to its merge commit on `$TARGET`. `--unset-metadata
 rejection_reason` clears any stale rejection field from an earlier
 rejected/reworked attempt before the successful close.
 
+The post-push `git cherry origin/$TARGET origin/$BRANCH` check is the
+close gate. A successful push only proves ref movement; it does NOT prove
+the source branch's patches landed on the target. If any `+ <sha>` remains,
+leave the bead blocked with explicit verification metadata, preserve the
+branch, and escalate instead of closing.
+
 **2. Cleanup:**
 ```bash
 git checkout --detach "origin/$TARGET" >/dev/null 2>&1 || true
@@ -840,6 +885,16 @@ If delete_merged_branches = "true":
 ```bash
 git push origin --delete "$BRANCH"
 git fetch --prune origin >/dev/null 2>&1 || true
+```
+If delete_merged_branches = "true", and only after the post-push patch
+verification passed:
+```bash
+git push origin --delete "$BRANCH"
+git fetch --prune origin
+git update-ref -d "refs/remotes/origin/$BRANCH" >/dev/null 2>&1 || true
+if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  git branch -d "$BRANCH" || git branch -D "$BRANCH" || true
+fi
 ```
 
 **If MERGE_STRATEGY = "mr":**
