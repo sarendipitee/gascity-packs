@@ -285,6 +285,18 @@ If `metadata.existing_pr` is present while `merge_strategy` is unset or
 `direct`, treat the handoff as `mr`. An existing PR cannot be validated
 and then ignored by landing directly to the target branch.
 
+In `direct` mode, a successful push is necessary but not sufficient.
+Before `gc bd close`, prove `origin/$TARGET` contains patch-equivalent
+copies of every commit from `metadata.branch` (`git cherry` / patch-id
+class check). If any branch patch is missing, re-open/re-queue the bead
+to polecat and leave the branch intact; never close a bead on an
+unverified merge.
+
+After a verified direct merge, reap merged `polecat/*` branches: delete
+the branch on `origin`, prune local remote-tracking refs, and drop any
+local branch ref. Already-merged branch piles look like stuck backlog and
+must not accumulate.
+
 ---
 
 ## Communication

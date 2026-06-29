@@ -514,6 +514,45 @@ branch_has_real_change() {
   return 0
 }
 
+branch_patches_missing_from_target() {
+  # Verify that every patch carried by <branch-ref> is present on
+  # <target-ref>, ignoring commit-hash rewrites from rebase/cherry-pick.
+  # `git cherry upstream head` prints "+" for patches in head not found
+  # upstream, "-" for patch-equivalent commits already present.
+  #   exit 0 = all branch patches found on target
+  #   exit 1 = one or more branch patches missing (prints offending SHAs)
+  #   exit 2 = verification could not run (missing refs / git error)
+  bpmft_target="$1"
+  bpmft_branch="$2"
+  git rev-parse --verify "$bpmft_target" >/dev/null 2>&1 || return 2
+  git rev-parse --verify "$bpmft_branch" >/dev/null 2>&1 || return 2
+  bpmft_missing=$(git cherry "$bpmft_target" "$bpmft_branch" 2>/dev/null | awk '$1 == "+" {print $2}')
+  bpmft_status=$?
+  [ "$bpmft_status" -eq 0 ] || return 2
+  if [ -n "$bpmft_missing" ]; then
+    printf '%s\n' "$bpmft_missing"
+    return 1
+  fi
+  return 0
+}
+
+requeue_unverified_merge() {
+  rum_branch="$1"
+  rum_target="$2"
+  rum_reason="$3"
+  gc workflow delete-source "$WORK" --apply && gc workflow reopen-source "$WORK"
+  gc bd update "$WORK" \
+    --status=open \
+    --assignee="" \
+    --set-metadata merge_result=verification_failed \
+    --set-metadata rejection_reason="Merge verification failed for $rum_branch -> $rum_target: $rum_reason" \
+    --set-metadata gc.routed_to="${GC_RIG:+$GC_RIG/}{{binding_prefix}}polecat"
+  echo "MERGE VERIFICATION FAILED: $rum_reason"
+  echo "Work bead re-queued to polecat. Branch left intact for recovery."
+  gc runtime drain-ack
+  exit 1
+}
+
 halt_false_completion() {
   # branch_has_real_change tripped: a close-as-merged would assert "work was
   # merged" for a branch that merges to a no-op, which is definitionally
@@ -708,6 +747,25 @@ branch_has_real_change "origin/$TARGET" temp || \
   halt_false_completion "$BRANCH" "$(git merge-base "origin/$TARGET" temp 2>/dev/null || printf '%s' "origin/$TARGET")"
 ```
 
+**0.5. Refuse a rebase that dropped branch patches:**
+
+Before touching `$TARGET`, prove the rebased `temp` branch still contains
+patch-equivalent copies of every commit from `origin/$BRANCH`. This catches
+the silent-loss case where rebase/cherry-pick drops a commit and the refinery
+would otherwise fast-forward and later close the bead on an incomplete land.
+```bash
+if PRE_PUSH_MISSING=$(branch_patches_missing_from_target temp "origin/$BRANCH"); then
+  PRE_PUSH_STATUS=0
+else
+  PRE_PUSH_STATUS=$?
+fi
+case "$PRE_PUSH_STATUS" in
+  0) ;;
+  1) requeue_unverified_merge "$BRANCH" "$TARGET" "rebased temp branch is missing source patches: $(printf '%s' "$PRE_PUSH_MISSING" | paste -sd',' -)" ;;
+  *) echo "Could not verify rebased branch contents before merge. STOP. Do not mutate bead state."; gc runtime drain-ack; exit 1 ;;
+esac
+```
+
 **1. Merge, push, verify, and close work bead:**
 
 Run this as one script. It uses a temporary detached worktree for the
@@ -743,6 +801,17 @@ if [ "$MERGED_SHA" != "$REMOTE" ]; then
   exit 1
 fi
 
+if POST_PUSH_MISSING=$(branch_patches_missing_from_target "origin/$TARGET" "origin/$BRANCH"); then
+  POST_PUSH_STATUS=0
+else
+  POST_PUSH_STATUS=$?
+fi
+case "$POST_PUSH_STATUS" in
+  0) ;;
+  1) requeue_unverified_merge "$BRANCH" "$TARGET" "target is missing source patches after push: $(printf '%s' "$POST_PUSH_MISSING" | paste -sd',' -)" ;;
+  *) echo "Could not verify origin/$TARGET contains branch patches after push. STOP. Do not mutate bead state."; gc runtime drain-ack; exit 1 ;;
+esac
+
 gc bd update "$WORK" \
   --set-metadata merge_result=merged \
   --set-metadata merged_sha="$MERGED_SHA" \
@@ -764,8 +833,14 @@ rejected/reworked attempt before the successful close.
 ```bash
 git checkout --detach "origin/$TARGET" >/dev/null 2>&1 || true
 git branch -d temp || git branch -D temp || true
+git branch -D "$BRANCH" >/dev/null 2>&1 || true
+git update-ref -d "refs/remotes/origin/$BRANCH" >/dev/null 2>&1 || true
 ```
-If delete_merged_branches = "true": `git push origin --delete $BRANCH`
+If delete_merged_branches = "true":
+```bash
+git push origin --delete "$BRANCH"
+git fetch --prune origin >/dev/null 2>&1 || true
+```
 
 **If MERGE_STRATEGY = "mr":**
 

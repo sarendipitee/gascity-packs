@@ -9,12 +9,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 EXPECTED_SKILLS = {
-    "blast-radius",
-    "check",
-    "contributing",
+    "start-contribution",
+    "orchestrate-contribution",
     "find-work",
-    "plan-pr",
-    "ship",
+    "fine-tune",
+    "map-blast-radius",
+    "plan-implementation",
+    "review",
     "write-issue",
 }
 
@@ -36,7 +37,7 @@ class PackStructureTests(unittest.TestCase):
         self.assertEqual(
             skills,
             EXPECTED_SKILLS,
-            "the self-contained lifecycle requires exactly these seven skills",
+            "the self-contained lifecycle requires exactly these eight skills",
         )
 
     def test_skill_name_matches_directory(self) -> None:

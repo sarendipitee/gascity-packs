@@ -3,7 +3,7 @@ Contributor triage workflow — scan open issues on gastownhall/gascity,
 classify them into the contributor-actionability tiers, and produce a
 ranked work-queue report. The gc-orchestrated mode of the `find-work`
 skill: same output a contributor's coding agent produces by reading the
-skill, but run inside a polecat session so a city operator can dispatch it
+skill, but run inside a transient worker session so a city operator can dispatch it
 on demand.
 
 THIN WRAPPER. This formula is orchestration only — it resolves the root
@@ -32,7 +32,7 @@ notes via `bd update <root-id> --notes "<key>: <value>"`.
 | Repo is not gastownhall/gascity | Record error, close bead |
 | `gh` not authenticated | Record error, close bead |
 | No open issues match category | Write empty-queue report, close bead with note |"""
-formula = "mol-contributing-triage"
+formula = "mol-contributing-find-work"
 version = 1
 
 [vars]
@@ -78,22 +78,27 @@ gate: gh_not_authed"
 
 Resolve vars and the report path. The report is written to a city-scope
 path (via `$GC_CITY_PATH`) when available, so the caller can read it after
-the transient polecat worktree is cleaned up; otherwise fall back to the
-polecat-local relative path.
+the transient worker worktree is cleaned up; otherwise fall back to the
+worker-local relative path.
 
 ```bash
 LIMIT="{{limit}}"
 [ -z "$LIMIT" ] && LIMIT=10
 CATEGORY="{{category}}"
 [ -z "$CATEGORY" ] && CATEGORY="all"
-TS=$(date +%Y%m%d-%H%M%S)
 if [ -n "${GC_CITY_PATH:-}" ]; then
     REPORT_DIR="${GC_CITY_PATH}/.gc/contributing/find-work"
 else
     REPORT_DIR=".gc/contributing/find-work"
 fi
 mkdir -p "$REPORT_DIR"
-REPORT_PATH="$REPORT_DIR/$TS.md"
+# Resume-safe: reuse the report path already recorded in the root-bead notes;
+# only mint a fresh timestamp on the first run, so re-running setup after an
+# interruption does not orphan a partial report under a new path.
+REPORT_PATH=$(bd show "$ROOT_ID" --json | jq -r '.[0].notes // ""' | grep -m1 '^report_path:' | sed 's/^report_path: //')
+if [ -z "$REPORT_PATH" ]; then
+    REPORT_PATH="$REPORT_DIR/$(date +%Y%m%d-%H%M%S).md"
+fi
 bd update "$ROOT_ID" --notes "category: $CATEGORY
 limit: $LIMIT
 repo: $REPO
@@ -117,8 +122,10 @@ those rules here; run them from the skill.
 
 Scope the run to this formula's vars: evaluate at most `LIMIT` candidates
 per tier, and filter the open-issue scan to `CATEGORY` (the skill's plain
-`gh` queries take a label/priority filter). Write the skill's ranked
-work-queue output to `$REPORT_PATH`.
+`gh` queries take a label/priority filter). Resolve the output path the
+setup step recorded (`report_path:` in the root-bead notes) and write the
+skill's ranked work-queue output there — do not assume `$REPORT_PATH` is
+still set; this step runs in its own shell.
 
 After writing the report, record the tier counts and the single
 recommended next pick in the root-bead notes so the caller can act without
@@ -126,6 +133,7 @@ re-reading the file:
 
 ```bash
 ROOT_ID=$(bd mol current --json | jq -r '.molecule_id')
+REPORT_PATH=$(bd show "$ROOT_ID" --json | jq -r '.[0].notes // ""' | grep -m1 '^report_path:' | sed 's/^report_path: //')
 bd update "$ROOT_ID" --notes "tier1: <n>
 tier2: <n>
 tier3: <n>
@@ -144,7 +152,7 @@ needs = ["find-work"]
 description = """
 Display the report path and recommended pick on stdout for the caller, then
 close the root bead. No further work happens — the caller reviews the
-report and decides which issue to dispatch via `mol-contributing-start`.
+report and decides which issue to dispatch via `mol-contributing-plan-implementation`.
 
 ```bash
 ROOT_ID=$(bd mol current --json | jq -r '.molecule_id')
@@ -152,10 +160,10 @@ NOTES=$(bd show "$ROOT_ID" --json | jq -r '.[0].notes // ""')
 REPORT_PATH=$(echo "$NOTES" | grep -m1 '^report_path:' | sed 's/^report_path: //')
 RECOMMENDED=$(echo "$NOTES" | grep -m1 '^recommended:' | sed 's/^recommended: //')
 cat <<EOF
-[contributing-triage] Work-queue report ready
-[contributing-triage]   Path: $REPORT_PATH
-[contributing-triage]   Recommended next pick: #$RECOMMENDED
-[contributing-triage] Next: review the report, then dispatch mol-contributing-start --var issue=<N>.
+[contributing-find-work] Work-queue report ready
+[contributing-find-work]   Path: $REPORT_PATH
+[contributing-find-work]   Recommended next pick: #$RECOMMENDED
+[contributing-find-work] Next: review the report, then dispatch mol-contributing-plan-implementation --var issue=<N>.
 EOF
 bd update "$ROOT_ID" --notes "status: complete"
 bd close "$ROOT_ID" --reason "contributor triage report written: $REPORT_PATH"
