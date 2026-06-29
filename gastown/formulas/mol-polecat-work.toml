@@ -351,19 +351,28 @@ but we never push with untracked work left behind.
 **3. Push your branch:**
 ```bash
 AUTO_PUSH=$(gc bd show "$WORK_BEAD_ID" --json | jq -r '.[0].metadata | if has("auto_push") then (.auto_push | tostring) else "" end')
+TARGET_BRANCH=$(gc bd show "$WORK_BEAD_ID" --json | jq -r '.[0].metadata.target // "{{base_branch}}"')
 if [ "$AUTO_PUSH" = "false" ]; then
   echo "auto_push=false: halting at branch-ready (no push, no refinery handoff)"
   BRANCH=$(git branch --show-current)
   gc bd update "$WORK_BEAD_ID" \
     --status=open --assignee="" \
     --set-metadata branch="$BRANCH" \
-    --set-metadata target={{base_branch}} \
+    --set-metadata target="$TARGET_BRANCH" \
     --set-metadata branch_ready=true \
     --set-metadata halt_reason=auto_push_false \
     --set-metadata gc.routed_to="" \
     --notes "Branch ready: auto_push=false (no push, no refinery handoff)"
   gc runtime drain-ack
   exit 0
+fi
+git fetch origin "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+if ! git rebase "origin/$TARGET_BRANCH"; then
+    echo "FINAL REBASE FAILED"
+    echo "  Branch '$CURRENT_BRANCH' conflicts with latest origin/$TARGET_BRANCH."
+    echo "  Resolve the rebase conflict locally, then re-run submit-and-exit."
+    gc runtime drain-ack
+    exit 1
 fi
 git push origin HEAD
 PUSH_EXIT=$?
