@@ -261,6 +261,14 @@ bead's previous rejection looks like ancient history. The cost of the
 unset is one CLI flag; the cost of leaving it set is a permanent
 contradictory record on the bead.
 
+**Post-push verification is required before close or branch reap.** For
+direct merges, a pushed target ref is not enough evidence. The refinery
+must verify `git cherry origin/$TARGET origin/$BRANCH` leaves no `+`
+entries before it writes merged metadata, closes the bead, or deletes
+`$BRANCH`. Any remaining `+ <sha>` means source-branch patches are
+missing from target; leave the bead blocked with explicit verification
+metadata and preserve the branch for debug.
+
 ## Merge Strategy
 
 `metadata.merge_strategy` controls the terminal handoff:
