@@ -251,7 +251,7 @@ schema = 1
 [[pack]]
   name = "jjw"
   description = "Jujutsu workspace setup helpers backed by aranw/jjw."
-  source = "https://github.com/gastownhall/gascity-packs/tree/main/jjw"
+  source = "https://github.com/duncan4123/gascity-packs/tree/main/jjw"
   source_kind = "git"
 
   [[pack.release]]
@@ -264,7 +264,7 @@ schema = 1
 [[pack]]
   name = "jj-hunk"
   description = "Agent-safe jj hunk selection workflows and subagent workspace tasking."
-  source = "https://github.com/gastownhall/gascity-packs/tree/main/jj-hunk"
+  source = "https://github.com/duncan4123/gascity-packs/tree/main/jj-hunk"
   source_kind = "git"
 
   [[pack.release]]
