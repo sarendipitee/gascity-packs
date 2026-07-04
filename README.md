@@ -149,6 +149,8 @@ Browse the tree for the current set; each pack has its own README.
 
 - [cass](./cass) adds a shared `cass-search` prompt fragment and Claude skill
   overlay for searching past coding-agent sessions.
+- [jjw](./jjw) adds `jjw`-backed Jujutsu workspace setup helpers, workspace
+  report commands, and reusable prompt fragments for workspace setup/reporting.
 
 ### Build methodology packs
 

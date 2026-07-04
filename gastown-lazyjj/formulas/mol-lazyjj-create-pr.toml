@@ -1,0 +1,145 @@
+description = """
+LazyJJ workflow for real work that should become a single PR.
+
+Use this when the assigned bead is an actual job whose right shape is one
+focused change, one bookmark, and one PR. The bead supplies the concrete files,
+acceptance criteria, and verification. This formula supplies the LazyJJ
+procedure.
+
+This formula stays aligned with the upstream LazyJJ tutorial:
+`website/src/content/docs/tutorials/create-pr.md`.
+"""
+formula = "mol-lazyjj-create-pr"
+version = 1
+
+[vars]
+[vars.job_summary]
+description = "Short summary for the PR change. Defaults to the attached bead title when rendered by a launcher."
+required = true
+
+[vars.target_files]
+description = "Human-readable list of files or areas the bead expects this PR to touch."
+required = true
+
+[vars.verification_command]
+description = "Focused command that proves this PR change. Empty means record the manual verification performed."
+default = ""
+
+[vars.review_bookmark]
+description = "Bookmark name to expose as the PR branch."
+default = "lazyjj-pr"
+
+[[steps]]
+id = "start"
+title = "Start fresh from trunk"
+description = """
+Start a new LazyJJ stack from trunk.
+
+```bash
+jj stack-start
+```
+
+Exit criteria:
+
+- the workspace is on a fresh LazyJJ working commit
+- the stack is ready for the PR change
+"""
+
+[[steps]]
+id = "edit"
+title = "Make and inspect the change"
+needs = ["start"]
+description = """
+Apply the assigned bead's requested change. Use `{{target_files}}` as the
+expected file/area hint when it is set, but inspect the repo before editing and
+keep the diff scoped to the bead.
+
+```bash
+jj status
+jj diff
+{{verification_command}}
+```
+
+Exit criteria:
+
+- the bead's acceptance criteria are implemented
+- `jj status` and `jj diff` show only the intended PR change
+- focused verification passed or the reason it could not run is recorded
+"""
+
+[[steps]]
+id = "describe"
+title = "Describe the commit"
+needs = ["edit"]
+description = """
+Describe the current LazyJJ commit.
+
+```bash
+jj describe -m "{{job_summary}}"
+```
+
+Exit criteria:
+
+- the current commit has a PR-ready description
+"""
+
+[[steps]]
+id = "bookmark"
+title = "Create a PR bookmark"
+needs = ["describe"]
+description = """
+Create the bookmark that will become the PR branch.
+
+```bash
+jj create "{{review_bookmark}}"
+```
+
+Exit criteria:
+
+- the PR bookmark exists for the described commit
+"""
+
+[[steps]]
+id = "publish"
+title = "Push and create the PR"
+needs = ["bookmark"]
+description = """
+Push the bookmarked commit and create the PR.
+
+```bash
+jj pr-stack-create
+```
+
+Exit criteria:
+
+- the PR exists or the command reports the reason it could not be created
+"""
+
+[[steps]]
+id = "update"
+title = "Respond to review feedback"
+needs = ["publish"]
+description = """
+Apply requested changes and push the update.
+
+```bash
+jj status
+jj diff
+{{verification_command}}
+jj stack-submit
+```
+
+Useful follow-up commands from the tutorial:
+
+```bash
+# View PR details in terminal
+jj pr-view
+
+# Open PR in browser
+jj pr-open
+```
+
+Exit criteria:
+
+- review updates are pushed to the existing PR
+"""

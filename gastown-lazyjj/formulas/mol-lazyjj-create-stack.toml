@@ -1,0 +1,153 @@
+description = """
+LazyJJ workflow for real work that should become a stacked series of PRs.
+
+Use this when the assigned bead is an actual job with dependent slices that
+should review as a stack. The bead supplies the concrete scope, stack slices,
+acceptance criteria, and verification. This formula supplies the LazyJJ
+procedure.
+
+This formula stays aligned with the upstream LazyJJ tutorial:
+`website/src/content/docs/tutorials/create-stack.md`.
+"""
+formula = "mol-lazyjj-create-stack"
+version = 1
+
+[vars]
+[vars.stack_plan]
+description = "Ordered summary of the stack slices this job should create."
+required = true
+
+[vars.verification_command]
+description = "Focused command to run for each slice or before publication."
+default = ""
+
+[[steps]]
+id = "start"
+title = "Start from trunk"
+description = """
+Start a fresh stack from trunk.
+
+```bash
+jj stack-start
+```
+
+Exit criteria:
+
+- the workspace is ready for the first stack commit
+"""
+
+[[steps]]
+id = "database-schema"
+title = "Create the first stack commit"
+needs = ["start"]
+description = """
+Create and bookmark the first coherent slice from the bead's stack plan.
+
+```bash
+jj status
+jj diff
+{{verification_command}}
+jj describe -m "<first slice summary>"
+jj create <first-slice-bookmark>
+jj new
+```
+
+Exit criteria:
+
+- the first stack commit is described
+- the first stack bookmark exists
+- the workspace has moved to the next commit
+"""
+
+[[steps]]
+id = "user-model"
+title = "Create the second stack commit"
+needs = ["database-schema"]
+description = """
+Create and bookmark the second coherent slice from the bead's stack plan.
+
+```bash
+jj status
+jj diff
+{{verification_command}}
+jj describe -m "<second slice summary>"
+jj create <second-slice-bookmark>
+jj new
+```
+
+Exit criteria:
+
+- the second stack commit is described
+- the second stack bookmark exists
+- the workspace has moved to the next commit
+"""
+
+[[steps]]
+id = "user-api"
+title = "Create the final stack commit"
+needs = ["user-model"]
+description = """
+Create and bookmark the final coherent slice from the bead's stack plan.
+
+```bash
+jj status
+jj diff
+{{verification_command}}
+jj describe -m "<final slice summary>"
+jj create <final-slice-bookmark>
+```
+
+Exit criteria:
+
+- the final stack commit is described
+- the final stack bookmark exists
+"""
+
+[[steps]]
+id = "inspect"
+title = "View the stack"
+needs = ["user-api"]
+description = """
+Inspect the stack before publishing.
+
+```bash
+jj stack-view
+```
+
+To view stack file changes:
+
+```bash
+jj stack-files
+```
+
+Exit criteria:
+
+- the stack order is understood
+- the stack contains the expected commits and bookmarks
+"""
+
+[[steps]]
+id = "publish"
+title = "Push all PRs"
+needs = ["inspect"]
+description = """
+Create or update PRs for the stack.
+
+```bash
+jj pr-stack-create
+```
+
+After a PR merges, sync and push the updated stack:
+
+```bash
+# Sync with trunk - this rebases your remaining stack
+jj stack-sync
+
+# Push the updated stack
+jj stack-submit
+```
+
+Exit criteria:
+
+- the stack is published or the command reports the reason publication failed
+"""

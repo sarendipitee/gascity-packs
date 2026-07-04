@@ -1,0 +1,153 @@
+description = """
+Produce one perfect Jujutsu change.
+
+Use this formula whenever you are about to describe a commit or finish a unit of
+work in a jj-managed workspace. A perfect change is atomic, clearly described,
+conflict-free, lint-clean, and leaves the operation log in a state that the next
+agent can understand and continue from.
+
+This formula is intentionally narrow: it is about the change you are sitting on
+right now. It does not decide when to rebase or land; the caller formula
+(`mol-packer-work`, `mol-packer-complete`, etc.) specifies the integration
+target and timing.
+"""
+formula = "mol-jj-change"
+version = 1
+
+[[steps]]
+id = "inspect-current-change"
+title = "Inspect the current change"
+description = """
+Understand exactly what is in the working copy right now.
+
+```bash
+jj status
+jj log -r '@' --no-graph
+jj diff --git
+jj diff --stat
+```
+
+Exit criteria:
+
+- you know which files are changed
+- you know whether the change is empty, mixed, or incomplete
+- the current `@` is the change you intend to perfect
+"""
+
+[[steps]]
+id = "ensure-one-atomic-change"
+title = "Ensure the change is atomic"
+needs = ["inspect-current-change"]
+description = """
+A perfect change does exactly one thing. If the working copy contains unrelated
+changes, split them before describing.
+
+Signs the change is not atomic:
+
+- the description would need "and" or a list of unrelated verbs
+- some changed files have nothing to do with the stated task
+- the diff mixes a feature, a refactor, and a cleanup
+
+Actions:
+
+```bash
+# Move unrelated changes to a new change
+jj split
+
+# Or move them to a fresh empty change to handle later
+jj new -m "<pack>: unrelated edits to move"
+```
+
+Exit criteria:
+
+- every changed file belongs to the same logical change
+- the description can be one concise sentence
+"""
+
+[[steps]]
+id = "write-clear-description"
+title = "Write a clear description"
+needs = ["ensure-one-atomic-change"]
+description = """
+Describe the change so the next reader knows what happened and why.
+
+Good description patterns for pack work:
+
+```
+<pack>: <verb> <object>
+
+<why this change matters, in one sentence>
+```
+
+Examples:
+
+- `packer: fix landing target semantics in mol-packer-complete`
+- `jj-hunk: add workspace health check to mol-jjw-workspace-report`
+- `gascity: clarify surgeon agent handoff in tasksmith prompt`
+
+Avoid:
+
+- `wip`, `fix`, `update` as the only word
+- descriptions that describe the symptom instead of the change
+- descriptions that list multiple unrelated changes
+
+```bash
+jj describe -m "<pack>: <clear description>"
+```
+
+Exit criteria:
+
+- description starts with the pack name for pack-scoped work
+- description explains the change, not just the file touched
+- no empty or placeholder descriptions remain
+"""
+
+[[steps]]
+id = "verify-change"
+title = "Verify the change"
+needs = ["write-clear-description"]
+description = """
+Run the narrowest checks that prove the change is correct.
+
+```bash
+# Pack-scoped work
+gc lint <pack>
+
+# Repository tests named by the bead or relevant to the change
+python3 -m pytest <relevant-tests> -q
+
+# Review the final diff one more time
+jj diff --git
+```
+
+Exit criteria:
+
+- lint passes for the affected pack
+- relevant tests pass
+- the diff matches the description
+- no accidental files or debug output are included
+"""
+
+[[steps]]
+id = "leave-clean-successor"
+title = "Leave a clean successor commit"
+needs = ["verify-change"]
+description = """
+After the change is perfect, create a new empty commit on top of it so the next
+unit of work starts from a clean state. This keeps the perfect change immutable
+and prevents later edits from accidentally amending it.
+
+```bash
+jj new
+```
+
+If the caller formula says to rebase onto an integration target now, do that
+before creating the successor. For packer pack work the integration target is
+usually `default@`, but the caller formula decides the timing.
+
+Exit criteria:
+
+- the perfect change is described and verified
+- the working copy is now a fresh empty commit
+- the next change will not silently amend the previous one
+"""

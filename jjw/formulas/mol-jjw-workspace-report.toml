@@ -1,0 +1,46 @@
+description = """
+Report jjw-managed workspace health.
+
+After claiming this vapor wisp, run:
+
+```bash
+gc bd formula show mol-jjw-workspace-report --json
+```
+
+Follow the step descriptions in order. When finished, close this bead, then run:
+
+```bash
+gc runtime drain-ack
+```
+
+The drain-ack tells the controller this dog session is done.
+"""
+formula = "mol-jjw-workspace-report"
+phase = "vapor"
+pool = "dog"
+
+[[steps]]
+id = "report"
+title = "Print the jjw workspace report"
+description = """
+Run the jjw workspace report from the rig root.
+
+```bash
+set -euo pipefail
+
+WORK_BEAD="${GC_BEAD_ID:?GC_BEAD_ID required}"
+
+echo "jjw workspace report"
+echo "root: ${PWD}"
+jjw version
+jjw list --verbose
+
+bd update "$WORK_BEAD" --append-notes "$(printf '## jjw workspace report %s\n\n```text\n' "$(date -Is)"; jjw version; jjw list --verbose; printf '```')"
+```
+
+Exit criteria:
+
+- `jjw list --verbose` prints all jjw-managed workspaces for this rig
+- the report is appended to the work bead notes
+- failures are visible in the dog session transcript
+"""

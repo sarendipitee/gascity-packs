@@ -1,0 +1,99 @@
+description = """
+Configure the Gas City city.toml for pack-based work.
+
+Use this formula from the packrouter session (rig scope, full repo visible) when
+the city needs a new pack registered, an import version bumped, an agent patch
+added, or a rig setting changed. This formula does not create a sparse pack
+workspace; it edits city.toml directly and validates the result with `gc config show`.
+"""
+formula = "mol-packer-configure"
+version = 1
+
+[[steps]]
+id = "load-config-task"
+title = "Load configuration task from rig root"
+description = """
+Run `gc hook`, read the assigned bead, and identify the required city.toml
+change. Common tasks:
+
+- register a new pack in a rig's `[rigs.imports]` section
+- bump an imported pack version/commit
+- add or update an agent patch in `[patches.agent]`
+- change `named_session` or rig-level settings
+
+```bash
+gc hook
+pwd
+```
+
+Exit criteria:
+
+- the target configuration change is explicit
+- the affected rig and city.toml path are known
+"""
+
+[[steps]]
+id = "inspect-city-toml"
+title = "Inspect current city.toml"
+needs = ["load-config-task"]
+description = """
+Read the city-scoped city.toml (usually `../city.toml` from the gascity-packs
+rig root). Identify the section to change and check for existing entries that
+must be updated rather than duplicated.
+
+```bash
+# from the gascity-packs rig root
+cat ../city.toml
+gc config show
+```
+
+Exit criteria:
+
+- current configuration is understood
+- the exact insertion or update point is identified
+"""
+
+[[steps]]
+id = "apply-config-change"
+title = "Apply city.toml change"
+needs = ["inspect-city-toml"]
+description = """
+Edit city.toml with the required change. Keep formatting consistent with the
+rest of the file. If adding a new rig import, place it under the correct
+`[[rigs]]` block. If adding a patch, place it under `[patches]`.
+
+After editing, validate:
+
+```bash
+gc config show
+```
+
+Fix any warnings or errors before proceeding.
+
+Exit criteria:
+
+- city.toml contains the intended change
+- `gc config show` reports no errors
+"""
+
+[[steps]]
+id = "commit-and-push"
+title = "Commit and push configuration change"
+needs = ["apply-config-change"]
+description = """
+Describe the change, move the city's main bookmark if applicable, and push.
+
+```bash
+jj describe -m "city: <summary>"
+jj bookmark set main -r @
+jj git push
+```
+
+If the change does not need to land on its own, it can also ride along with a
+related pack landing commit. Record which approach was taken.
+
+Exit criteria:
+
+- change is committed
+- main or the relevant branch is updated
+"""

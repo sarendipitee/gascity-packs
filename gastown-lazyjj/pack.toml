@@ -1,0 +1,15 @@
+[pack]
+name = "gastown-lazyjj"
+version = "0.1.2"
+schema = 2
+description = "LazyJJ workspace and stack workflow for Gas Town jj workers."
+
+[global]
+session_live = [
+    "{{.ConfigDir}}/assets/scripts/tmux-scroll.sh {{.Session}}",
+]
+
+[providers.codex-gpt-5-5]
+base = "builtin:codex"
+option_defaults = { model = "gpt-5.5", effort = "medium" }
+

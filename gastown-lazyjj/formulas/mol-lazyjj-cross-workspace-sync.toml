@@ -1,0 +1,237 @@
+description = """
+LazyJJ workflow for resolving conflicts that span multiple jj workspaces and
+syncing the runnable default workspace to the resolved stack head.
+
+Use this when a jedi workspace has work that must be tested from the rig
+`default` workspace, or when a conflict appears resolved in one workspace but
+still exists on a side stack. The bead supplies the concrete stack, workspaces,
+and verification command. This formula supplies the graph-first procedure.
+
+The handoff must leave the source workspace and the target workspace on the
+same tested head unless the bead explicitly records why they are intentionally
+different. Divergence is a temporary state to resolve, not a normal operating
+mode.
+
+The workflow keeps the transfer mechanism in jj history operations:
+`jj edit`, conflict-marker edits, `jj rebase`, and optional `jj absorb`.
+Do not copy files between workspaces.
+"""
+formula = "mol-lazyjj-cross-workspace-sync"
+version = 1
+
+[vars]
+[vars.source_workspace_dir]
+description = "Absolute path to the jedi/source workspace that owns the work stack."
+required = true
+
+[vars.target_workspace_dir]
+description = "Absolute path to the runnable integration workspace, usually the rig root/default workspace."
+default = ""
+
+[vars.stack_head]
+description = "Change ID for the source stack head to sync into the target workspace."
+required = true
+
+[vars.verification_command]
+description = "Focused command to run from the target workspace after moving it to the resolved stack head."
+default = ""
+
+[vars.sync_source_after]
+description = "Move the source workspace to the tested integrated head after verification."
+default = "true"
+enum = ["true", "false"]
+
+[[steps]]
+id = "inspect"
+title = "Inspect both workspace heads"
+description = """
+Inspect the source stack and the target integration workspace before changing
+either workspace pointer.
+
+```bash
+cd "{{source_workspace_dir}}"
+jj status
+jj log -r 'trunk() | stack | conflicts()' --limit 80
+jj log -r 'divergent()' --limit 120
+jj log -r 'working_copies()' --limit 120
+
+if [ -n "{{target_workspace_dir}}" ]; then
+  cd "{{target_workspace_dir}}"
+  jj status
+  jj log -r 'trunk() | default@ | @' --limit 40
+fi
+```
+
+Exit criteria:
+
+- the source stack head is `{{stack_head}}`
+- existing target workspace edits are understood before moving `default@`
+- conflicted commits are visible with stable change IDs
+- divergent change IDs are visible before any alternate version is abandoned
+"""
+
+[[steps]]
+id = "resolve-divergence"
+title = "Resolve divergent change IDs"
+needs = ["inspect"]
+description = """
+Resolve divergent change IDs before resolving conflicts or moving workspace
+heads. Divergence means the same change ID has multiple rewritten versions, so
+the operator must choose which version survives.
+
+```bash
+cd "{{source_workspace_dir}}"
+jj log -r 'divergent()' --limit 120
+jj log -r 'working_copies() & divergent()' --limit 80
+```
+
+For each divergent change ID:
+
+1. inspect every version with an explicit offset such as `<change-id>/0`,
+   `<change-id>/1`, and `<change-id>/2`
+2. keep the version that is bookmarked, is a workspace head, or contains the
+   intended final content
+3. abandon only superseded versions that are not needed by another live stack
+
+```bash
+jj show <change-id>/0 --git
+jj show <change-id>/1 --git
+jj abandon <superseded-change-id>/<offset>
+jj log -r 'divergent()' --limit 120
+```
+
+If two divergent versions both contain useful changes, preserve the useful
+content by rebasing or restoring the needed paths into the version that will
+survive before abandoning the alternate.
+
+Exit criteria:
+
+- no source-stack working copy is divergent
+- any remaining repo-wide divergence is documented as intentionally out of
+  scope with the chosen surviving change IDs
+"""
+
+[[steps]]
+id = "resolve-source-conflicts"
+title = "Resolve conflicts in the source stack"
+needs = ["resolve-divergence"]
+description = """
+Resolve conflicts where they originate, starting with the earliest conflicted
+commit in the source stack. JJ may use `conflicts()` instead of older tutorial
+examples that say `conflict()`.
+
+```bash
+cd "{{source_workspace_dir}}"
+jj log -r 'ancestors({{stack_head}}, 40) & conflicts()' --limit 80
+```
+
+For each conflicted commit, move to it and edit the conflicted files directly:
+
+```bash
+jj edit <conflicted-change-id>
+jj status
+```
+
+Do not run interactive `jj resolve` in agent sessions. Open the conflicted
+files, remove the conflict markers, and keep the merged content that preserves
+both valid intents. If the correct resolution already exists in another clean
+revision, restore that path from the clean revision instead of retyping it:
+
+```bash
+jj restore --from <clean-change-id> path/to/file
+```
+
+After each resolution, let jj rebase descendants and re-check:
+
+```bash
+jj status
+jj log -r 'conflicts()' --limit 80
+```
+
+Use `jj absorb` only after the files are clean, and only when the resolution
+was made at the wrong stack level and should be routed back into the commit
+that last touched those lines.
+
+Exit criteria:
+
+- `jj log -r 'conflicts()'` has no source-stack conflicts
+- no unresolved conflict markers remain outside intentional tutorial examples
+- `{{stack_head}}` or its rewritten successor is known
+"""
+
+[[steps]]
+id = "move-target"
+title = "Move the runnable workspace to the resolved head"
+needs = ["resolve-source-conflicts"]
+description = """
+Move the target integration workspace to the resolved source stack head. This
+is the handoff; do not copy files between workspaces.
+
+```bash
+cd "{{target_workspace_dir}}"
+jj edit "{{stack_head}}"
+jj status
+jj log -r 'trunk() | default@ | @' --limit 40
+```
+
+If the source head was rewritten while resolving conflicts, use the rewritten
+change ID shown by `jj log` instead of the original `{{stack_head}}`.
+
+Exit criteria:
+
+- the target workspace filesystem shows the resolved stack
+- `default@` or the target workspace `@` points at the integrated head
+- no accidental target-local edits were introduced
+"""
+
+[[steps]]
+id = "verify-target"
+title = "Run focused integration checks"
+needs = ["move-target"]
+description = """
+Run the focused checks requested by the bead or operator from the target
+workspace.
+
+```bash
+cd "{{target_workspace_dir}}"
+{{verification_command}}
+jj status
+```
+
+If verification creates generated files, remove only those generated artifacts
+or restore them from the target parent. Do not alter source-stack feature files
+as cleanup.
+
+Exit criteria:
+
+- focused verification passed, or the exact failing command and output summary
+  is recorded on the bead
+- the target workspace has no accidental generated-file edits
+"""
+
+[[steps]]
+id = "sync-source"
+title = "Move the source workspace to the tested head"
+needs = ["verify-target"]
+description = """
+When requested, move the source workspace to the same tested integrated head so
+the next jedi task starts from the full graph state.
+
+```bash
+if [ "{{sync_source_after}}" = "true" ]; then
+  cd "{{source_workspace_dir}}"
+  jj edit "{{stack_head}}"
+  jj status
+fi
+```
+
+If the source workspace still has useful local edits, preserve them with
+`jj absorb` or `jj rebase` before moving the workspace. Do not manually copy
+files from the target workspace back into the source workspace.
+
+Exit criteria:
+
+- source and target workspaces are aligned on the same tested stack head, or
+  the bead records why the source workspace intentionally remains elsewhere
+- the graph shows the handoff through ancestry rather than copied files
+"""

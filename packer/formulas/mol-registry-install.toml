@@ -1,0 +1,83 @@
+description = """
+Install a new pack into registry.toml.
+
+Use this formula when a pack exists in the repository but has no entry in
+registry.toml yet.
+"""
+formula = "mol-registry-install"
+version = 1
+
+[[steps]]
+id = "inspect-pack"
+title = "Inspect the new pack"
+description = """
+Read the pack's pack.toml and verify it lints.
+
+```bash
+gc lint <pack>
+cat <pack>/pack.toml
+```
+
+Exit criteria:
+
+- pack directory exists
+- pack.toml is valid
+- pack name matches directory name
+"""
+
+[[steps]]
+id = "prepare-pack-entry"
+title = "Prepare registry pack and release entries"
+needs = ["inspect-pack"]
+description = """
+Get the current main commit and construct the initial release entry.
+
+```bash
+commit=$(jj log -r main@origin -T commit_id)
+```
+
+Add a new `[[pack]]` block near the end of registry.toml:
+
+```toml
+[[pack]]
+name = "<pack>"
+description = "<description from pack.toml>"
+source = "https://github.com/gastownhall/gascity-packs/tree/main/<pack>"
+source_kind = "git"
+
+[[pack.release]]
+version = "0.1.0"
+ref = "main"
+commit = "<full-sha>"
+hash = "sha256:PLACEHOLDER"
+description = "Initial <pack> pack release."
+```
+
+Run `python3 validate_registry.py`, copy the expected hash into registry.toml,
+and re-run until validation passes.
+
+Exit criteria:
+
+- new pack block exists in registry.toml
+- release entry has correct hash
+- validation passes
+"""
+
+[[steps]]
+id = "commit-and-push"
+title = "Commit and push registry install"
+needs = ["prepare-pack-entry"]
+description = """
+Describe, move main, and push.
+
+```bash
+jj describe -m "registry: install <pack> at 0.1.0"
+jj bookmark set main -r @
+jj git push
+```
+
+Exit criteria:
+
+- main and main@origin point to the install commit
+- validation passes
+"""

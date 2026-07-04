@@ -1,0 +1,17 @@
+scope = "rig"
+provider = "codex"
+wake_mode = "fresh"
+# The role-worker prompt is generic; this formula is packsmith's concrete
+# workflow contract.
+formula = "mol-packer-work"
+# Shared packsmith is a neutral pool template. Routed beads select the actual
+# pack with gc.pack/gc.pack_root metadata before pre_start runs.
+work_dir = ".gc/workspaces/{{.Rig}}/packs/__packsmith__"
+nudge = "Check jj log & list packs"
+pre_start = [
+  "\"$GC_RIG_ROOT/packer/assets/scripts/pack-workspace-setup.sh\" --sync",
+]
+work_query = "sh -c 'for id in \"$GC_SESSION_ID\" \"$GC_SESSION_NAME\" \"$GC_ALIAS\"; do [ -z \"$id\" ] && continue; r=$(bd list --status in_progress --assignee=\"$id\" --json --limit=1 2>/dev/null); [ -n \"$r\" ] && [ \"$r\" != \"[]\" ] && printf \"%s\" \"$r\" && exit 0; done; for target in \"$GC_TEMPLATE\" \"$GC_AGENT\" \"$GC_ALIAS\"; do [ -z \"$target\" ] && continue; r=$(bd list --metadata-field gc.routed_to=\"$target\" --json --limit=20 2>/dev/null | jq \"[.[] | select((.status // \\\"\\\") == \\\"open\\\" and (.assignee // \\\"\\\") == \\\"\\\")] | .[:1]\"); [ -n \"$r\" ] && [ \"$r\" != \"[]\" ] && printf \"%s\" \"$r\" && exit 0; done; printf \"[]\"'"
+idle_timeout = "2h"
+min_active_sessions = 0
+max_active_sessions = 6

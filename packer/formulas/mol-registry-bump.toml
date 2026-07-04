@@ -1,0 +1,94 @@
+description = """
+Bump the registry release pin for a pack.
+
+Use this formula when a pack in this repository has changed and its entry in
+registry.toml needs a new release with an updated commit and content hash.
+The target pack is named by the bead metadata.
+"""
+formula = "mol-registry-bump"
+version = 1
+
+[[steps]]
+id = "load-pack"
+title = "Load pack and current registry entry"
+description = """
+Read the target pack's pack.toml and locate its [[pack]] block in registry.toml.
+
+```bash
+cat <pack>/pack.toml
+grep -n 'name = "<pack>"' registry.toml
+```
+
+Note the current latest release version and the pack's current version in pack.toml.
+
+Exit criteria:
+
+- target pack exists in the repository
+- registry.toml contains the pack
+- current latest release version is known
+"""
+
+[[steps]]
+id = "choose-version"
+title = "Choose next release version"
+needs = ["load-pack"]
+description = """
+Pick the next semver for the registry release. Use patch for bug fixes and small
+changes, minor for new features, major for breaking changes.
+
+Exit criteria:
+
+- next version is decided and documented in the bead notes
+"""
+
+[[steps]]
+id = "prepare-release-entry"
+title = "Prepare new release entry"
+needs = ["choose-version"]
+description = """
+Get the commit to pin and the content hash.
+
+```bash
+commit=$(jj log -r main@origin -T commit_id)
+```
+
+Append a new `[[pack.release]]` under the pack block:
+
+```toml
+[[pack.release]]
+version = "<next-version>"
+ref = "main"
+commit = "<full-sha>"
+hash = "sha256:PLACEHOLDER"
+description = "<summary of changes>"
+```
+
+Run `python3 validate_registry.py`. It will report the expected hash for the
+new entry. Copy the expected hash into registry.toml and re-run until validation
+passes.
+
+Exit criteria:
+
+- registry.toml has a new release entry for the pack
+- `python3 validate_registry.py` reports no errors
+"""
+
+[[steps]]
+id = "commit-and-push"
+title = "Commit and push registry bump"
+needs = ["prepare-release-entry"]
+description = """
+Describe the registry change, move main to it, and push.
+
+```bash
+jj describe -m "registry: bump <pack> to <next-version>"
+jj bookmark set main -r @
+jj git push
+```
+
+Exit criteria:
+
+- main points to the registry bump commit
+- main@origin is updated
+- validation still passes
+"""

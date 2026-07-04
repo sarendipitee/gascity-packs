@@ -1,0 +1,35 @@
+beads:
+  - title: "Refresh pack README workflow links"
+    type: task
+    priority: 2
+    formula: mol-polecat-lazyjj-work
+    description: |
+      Update the pack README so the LazyJJ workflow links, routing notes, and
+      stack-aware terminology match the current pack layout.
+    acceptance_criteria:
+      - The README points to the current pack surfaces.
+      - The wording matches the current LazyJJ workflow model.
+      - The change stays focused on documentation and navigation.
+    dependencies: []
+    files:
+      - gastown-lazyjj/README.md
+    verification:
+      - rg -n "tasksmith|workspace|stack|formula" gastown-lazyjj/README.md
+
+  - title: "Add a focused pack surface bead"
+    type: task
+    priority: 2
+    formula: mol-polecat-lazyjj-work
+    description: |
+      Capture one pack surface change as a claimable bead, such as a skill,
+      agent, formula, or workspace helper, without bundling unrelated cleanup.
+    acceptance_criteria:
+      - The bead names one pack surface and one ownership boundary.
+      - The bead can be claimed and finished independently.
+      - The verification steps are narrow and repeatable.
+    dependencies: []
+    files:
+      - gastown-lazyjj/agents/tasksmith/prompt.template.md
+    verification:
+      - The bead description can be expanded directly into a focused jj change
+

@@ -1,0 +1,326 @@
+description = """
+Jedi LazyJJ workspace lifecycle.
+Pack reload check: gastown-lazyjj source edits are visible through formula rendering.
+
+This formula is for sessions that already start inside their assigned jj
+workspace. The workspace owns its own `@`; the jedi uses global LazyJJ
+revset aliases to inspect, checkpoint, clean, and hand off a stack.
+
+The formula does not create workspaces. It validates the assigned workspace and
+records the workspace linkage on the bead so restart, runner integration, and
+review flows can find the same graph state.
+"""
+formula = "mol-polecat-lazyjj-work"
+extends = ["mol-polecat-base"]
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[vars]
+[vars.binding_prefix]
+description = "Import binding prefix for gastown agent identities, including trailing dot when bound."
+default = ""
+
+[vars.review_bookmark_prefix]
+description = "Bookmark prefix used when preparing the current stack for review."
+default = "jedi"
+
+[vars.publish_mode]
+description = "Submit behavior: handoff records a local bookmark and stack metadata; push also pushes the bookmark and attempts LazyJJ PR helpers."
+default = "handoff"
+enum = ["handoff", "push"]
+
+[vars.affected_tests_command]
+description = "Shell-safe affected-tests command. Must read `jj diff --from branch_off --name-only` and run the matching test subset. Empty means skip tests unless a human gives focused test instructions."
+default = ""
+
+[[steps]]
+id = "workspace-setup"
+title = "Verify the assigned LazyJJ workspace"
+needs = ["load-context"]
+description = """
+Verify that this jedi is already running in the jj workspace assigned to
+`{{issue}}`. Do not create a new workspace here; workspace creation and session
+placement are launcher responsibilities.
+
+**1. Confirm LazyJJ revset aliases are available.**
+
+```bash
+jj log -r branch_off --limit 1 >/dev/null
+jj log -r stack_base --limit 1 >/dev/null
+jj log -r stack --limit 1 >/dev/null
+jj log -r no_description --limit 1 >/dev/null
+```
+
+If any command fails, stop and report that `mol-polecat-lazyjj-work` requires
+the global LazyJJ jj config.
+
+**2. Load the current workspace and bead metadata.**
+
+```bash
+bd show {{issue}}
+WORK_JSON=$(bd show {{issue}} --json)
+RECORDED_WORKSPACE_NAME=$(printf '%s' "$WORK_JSON" | jq -r '.[0].metadata.lazyjj_workspace // empty')
+RECORDED_WORKSPACE_DIR=$(printf '%s' "$WORK_JSON" | jq -r '.[0].metadata.lazyjj_workspace_dir // empty')
+BEAD_TITLE=$(printf '%s' "$WORK_JSON" | jq -r '.[0].title // empty' | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
+BEAD_BODY=$(printf '%s' "$WORK_JSON" | jq -r '.[0].description // .[0].notes // empty' | sed '/^[[:space:]]*$/d')
+WORKSPACE_DIR=$(jj workspace root)
+WORKSPACE_NAME=$(jj workspace list | awk -v root="$WORKSPACE_DIR" '$0 ~ root { sub(":$", "", $1); print $1; exit }')
+if [ -z "$WORKSPACE_NAME" ]; then
+  WORKSPACE_NAME=$(basename "$WORKSPACE_DIR")
+fi
+```
+
+**3. Refuse to drift from existing bead metadata.**
+
+```bash
+if [ -n "$RECORDED_WORKSPACE_NAME" ] && [ "$RECORDED_WORKSPACE_NAME" != "$WORKSPACE_NAME" ]; then
+  echo "Bead {{issue}} is recorded for workspace $RECORDED_WORKSPACE_NAME, but this session is in $WORKSPACE_NAME" >&2
+  exit 1
+fi
+if [ -n "$RECORDED_WORKSPACE_DIR" ] && [ "$RECORDED_WORKSPACE_DIR" != "$WORKSPACE_DIR" ]; then
+  echo "Bead {{issue}} is recorded for workspace dir $RECORDED_WORKSPACE_DIR, but this session is in $WORKSPACE_DIR" >&2
+  exit 1
+fi
+```
+
+**4. Record the assigned workspace.**
+
+```bash
+bd update {{issue}} \
+  --set-metadata lazyjj_workspace="$WORKSPACE_NAME" \
+  --set-metadata lazyjj_workspace_dir="$WORKSPACE_DIR"
+```
+
+**5. Normalize the stack base.**
+
+Fetch through jj, then place this workspace's `@` on top of `trunk()` only if
+there is not already useful work in the workspace stack.
+
+```bash
+jj git fetch
+jj log -r 'trunk() | stack' --limit 20
+
+write_bead_change_description() {
+  desc_file="$1"
+  if [ -z "$BEAD_TITLE" ]; then
+    BEAD_TITLE="{{issue}}"
+  fi
+  {
+    printf 'work: {{issue}} %s\n' "$BEAD_TITLE"
+    if [ -n "$BEAD_BODY" ]; then
+      printf '\n%s\n' "$BEAD_BODY"
+    fi
+  } > "$desc_file"
+}
+
+describe_current_change_from_bead() {
+  desc_file=$(mktemp)
+  write_bead_change_description "$desc_file"
+  jj describe --stdin < "$desc_file"
+  rm -f "$desc_file"
+}
+
+if jj log -r 'stack & ~empty()' --no-graph --template 'change_id ++ "\n"' | grep -q .; then
+  echo "Existing stack found; reusing it."
+  if jj log -r 'stack & no_description' --no-graph --template 'change_id ++ "\n"' | grep -q "$(jj log -r @ --no-graph --template 'change_id')"; then
+    describe_current_change_from_bead
+  fi
+else
+  desc_file=$(mktemp)
+  write_bead_change_description "$desc_file"
+  jj new trunk()
+  jj describe --stdin < "$desc_file"
+  rm -f "$desc_file"
+fi
+```
+
+Exit criteria:
+
+- `pwd` is inside the assigned workspace
+- bead metadata records `lazyjj_workspace` and `lazyjj_workspace_dir`
+- LazyJJ revset aliases work in this workspace
+- fresh empty workspaces start with a change description derived from `{{issue}}`
+- resumed workspaces with an undescribed current change get the same bead-derived description
+"""
+
+[[steps]]
+id = "preflight-tests"
+title = "Inspect the LazyJJ stack and run preflight checks"
+needs = ["workspace-setup"]
+description = """
+Inspect the workspace stack before editing. The current workspace's `@` is the
+jedi's working head; do not reason from the default workspace's `@`.
+
+```bash
+cd "$(bd show {{issue}} --json | jq -r '.[0].metadata.lazyjj_workspace_dir')"
+jj status
+jj log -r 'trunk() | branch_off | stack' --limit 40
+jj log -r 'stack & no_description'
+{{setup_command}}
+{{typecheck_command}}
+{{lint_command}}
+```
+only run focussed tests when needed never build and never run the full test suite
+
+If the existing workspace is stale, rebase the stack onto current trunk while
+keeping the same workspace:
+
+```bash
+jj rebase -b stack_base -d trunk()
+jj log -r 'trunk() | stack' --limit 40
+```
+
+Exit criteria:
+
+- the stack shape is understood
+- failing baseline checks are recorded on the bead before implementation
+- no unrelated workspace is edited
+"""
+
+[[steps]]
+id = "implement"
+title = "Implement using LazyJJ checkpoints"
+needs = ["preflight-tests"]
+description = """
+Do the assigned work inside the recorded LazyJJ workspace.
+
+```bash
+cd "$(bd show {{issue}} --json | jq -r '.[0].metadata.lazyjj_workspace_dir')"
+```
+
+Work in small graph-visible chunks:
+
+1. inspect the current stack with `jj log -r 'trunk() | stack'`
+2. make one coherent change
+3. run the narrowest useful verification
+4. checkpoint with `jj claude-checkpoint "short description"` if available
+5. otherwise use `jj new -m "next"` and `jj describe -r @- -m "short description"`
+6. repeat until the assignment is complete
+
+Use LazyJJ's stack aliases as the operating model:
+
+```bash
+jj log -r branch_off
+jj log -r stack_base
+jj log -r stack
+jj log -r 'stack & no_description'
+```
+
+If a change belongs in an earlier stack commit, prefer `jj absorb` from the
+workspace head after editing. If hunk-level routing is needed, use `jj-hunk`
+instead of interactive jj commands.
+
+Do not create a review bookmark until useful work exists. Bookmarks are
+review/export handles, not the working model.
+
+Exit criteria:
+
+- implementation is complete
+- stack commits are focused and described
+- `jj log -r 'stack & no_description'` is empty
+"""
+metadata = { "gc.continuation_group" = "main", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "self-review"
+title = "Review the LazyJJ stack"
+needs = ["implement"]
+description = """
+Review the stack from the recorded workspace and verify the change.
+
+```bash
+cd "$(bd show {{issue}} --json | jq -r '.[0].metadata.lazyjj_workspace_dir')"
+jj status
+jj log -r 'trunk() | stack' --limit 60
+jj diff --from branch_off
+jj log -r 'stack & no_description'
+{{typecheck_command}}
+{{lint_command}}
+{{affected_tests_command}}
+```
+only run focussed tests when needed never build and never run the full test suite
+
+Fix issues in-place. If fixes belong to earlier commits, use `jj absorb` or
+`jj-hunk` and re-run the relevant verification.
+
+Exit criteria:
+
+- `jj status` has no conflicts
+- every non-empty stack commit has a description
+- required verification passes or failures are explicitly recorded on `{{issue}}`
+"""
+metadata = { "gc.continuation_group" = "main", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "submit"
+title = "Prepare the LazyJJ stack for runner integration"
+needs = ["self-review"]
+description = """
+Prepare the stack for review without losing the workspace identity.
+
+```bash
+cd "$(bd show {{issue}} --json | jq -r '.[0].metadata.lazyjj_workspace_dir')"
+BOOKMARK="{{review_bookmark_prefix}}/{{issue}}"
+BOOKMARK=$(printf '%s' "$BOOKMARK" | tr -cs 'A-Za-z0-9/_-' '-')
+STACK_HEAD=$(jj log -r 'heads(stack & ~empty())' --no-graph --template 'change_id ++ "\n"' | head -1)
+if [ -z "$STACK_HEAD" ]; then
+  echo "No non-empty stack head exists for {{issue}}" >&2
+  exit 1
+fi
+jj bookmark set "$BOOKMARK" -r "$STACK_HEAD"
+bd update {{issue}} \
+  --set-metadata lazyjj_review_bookmark="$BOOKMARK" \
+  --set-metadata lazyjj_stack_revset="stack"
+```
+
+If `publish_mode` is `push`, publish the review bookmark and try the LazyJJ
+stacked PR helpers. Otherwise leave publication to the runner/operator.
+
+```bash
+case "{{publish_mode}}" in
+  push)
+    jj git push --bookmark "$BOOKMARK"
+    gh pr create --fill --head "$BOOKMARK" || true
+    gh pr list --head "$BOOKMARK" || true
+    ;;
+  handoff)
+    echo "publish_mode=handoff; stack metadata recorded for runner integration."
+    ;;
+  *)
+    echo "invalid publish_mode: {{publish_mode}}" >&2
+    exit 1
+    ;;
+esac
+```
+
+Record the handoff on the bead:
+
+```bash
+bd update {{issue}} --append-notes "LazyJJ stack ready for runner integration.
+Workspace: $(bd show {{issue}} --json | jq -r '.[0].metadata.lazyjj_workspace')
+Workspace dir: $(bd show {{issue}} --json | jq -r '.[0].metadata.lazyjj_workspace_dir')
+Bookmark: $BOOKMARK
+Publish mode: {{publish_mode}}
+Stack: jj log -r 'trunk() | stack'"
+```
+
+Exit criteria:
+
+- review bookmark points at the non-empty stack head
+- bead metadata contains the workspace, workspace dir, bookmark, and stack revset
+- runner/operator has enough information to inspect and publish the exact stack
+"""
+metadata = { "gc.continuation_group" = "main", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"

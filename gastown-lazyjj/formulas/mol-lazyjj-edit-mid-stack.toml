@@ -1,0 +1,132 @@
+description = """
+LazyJJ workflow for real work that edits a commit in the middle of a stack.
+
+Use this when the assigned bead is an actual job whose fix belongs in an
+existing stack commit rather than at the stack head. The bead supplies the
+target change, files, acceptance criteria, and verification. This formula
+supplies the LazyJJ procedure.
+
+This formula stays aligned with the upstream LazyJJ tutorial:
+`website/src/content/docs/tutorials/edit-mid-stack.md`.
+"""
+formula = "mol-lazyjj-edit-mid-stack"
+version = 1
+
+[vars]
+[vars.target_change_id]
+description = "Change ID of the stack commit to edit."
+required = true
+
+[vars.target_files]
+description = "Human-readable list of files or areas expected to change."
+required = true
+
+[vars.verification_command]
+description = "Focused command that proves the mid-stack edit."
+default = ""
+
+[[steps]]
+id = "navigate"
+title = "Navigate to the commit"
+description = """
+Move to the commit that needs the edit.
+
+```bash
+jj edit "{{target_change_id}}"
+```
+
+Exit criteria:
+
+- the working copy is editing the target stack commit
+"""
+
+[[steps]]
+id = "edit"
+title = "Make the mid-stack change"
+needs = ["navigate"]
+description = """
+Make the assigned bead's intended change in the selected commit. Use
+`{{target_files}}` as the expected file/area hint when it is set.
+
+```bash
+jj status
+jj diff
+```
+
+Exit criteria:
+
+- the intended files are changed in the selected commit
+"""
+
+[[steps]]
+id = "verify"
+title = "Verify the current commit"
+needs = ["edit"]
+description = """
+Inspect the current commit and overall status.
+
+```bash
+jj diff
+jj status
+{{verification_command}}
+```
+
+Exit criteria:
+
+- the diff is correct for the edited commit
+- status does not show unexpected problems
+"""
+
+[[steps]]
+id = "return-to-top"
+title = "Return to the stack top"
+needs = ["verify"]
+description = """
+Return to the top of the stack after editing the earlier commit.
+
+```bash
+jj stack-top
+```
+
+Exit criteria:
+
+- the workspace is back at the stack head
+"""
+
+[[steps]]
+id = "push"
+title = "Push updates"
+needs = ["return-to-top"]
+description = """
+Push all updated PRs.
+
+```bash
+jj stack-submit
+```
+
+If rebased descendants now have conflicts, use the tutorial conflict path:
+
+```bash
+# After editing a mid-stack commit
+jj stack-top
+jj status
+# May show: "Commit xyz has conflicts"
+
+# View which commits have conflicts
+jj log -r "stack"
+
+# Navigate to the conflicted commit
+jj edit xyz
+
+# Resolve conflicts
+jj resolve
+
+# Push updates
+jj stack-submit
+```
+
+Exit criteria:
+
+- the stack has been pushed
+- any conflicts caused by the mid-stack edit are resolved or clearly reported
+"""

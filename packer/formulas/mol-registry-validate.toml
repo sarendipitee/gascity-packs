@@ -1,0 +1,75 @@
+description = """
+Validate registry.toml against the repository contents.
+
+Use this formula to check for structural errors, hash mismatches, missing
+entries, or stale release pins.
+"""
+formula = "mol-registry-validate"
+version = 1
+
+[[steps]]
+id = "run-validator"
+title = "Run registry validator"
+description = """
+Run the registry validation script from the rig root.
+
+```bash
+python3 validate_registry.py
+```
+
+Capture the full output.
+
+Exit criteria:
+
+- validator output is recorded in the bead notes
+"""
+
+[[steps]]
+id = "report"
+title = "Report validation results"
+needs = ["run-validator"]
+description = """
+Summarize any errors. If validation passes, note that. If it fails, list each
+error and the affected pack/release.
+
+Exit criteria:
+
+- pass/fail status is clear
+- every error is attributed to a pack and release
+"""
+
+[[steps]]
+id = "fix-if-small"
+title = "Fix small issues inline"
+needs = ["report"]
+description = """
+If the validator reports hash mismatches or missing descriptions that can be
+fixed safely, update registry.toml and re-run the validator. For larger issues,
+route a dedicated bead with mol-registry-bump or mol-registry-install instead.
+
+Exit criteria:
+
+- validator passes after fixes, or
+- remaining issues are recorded and routed to follow-up beads
+"""
+
+[[steps]]
+id = "commit-or-close"
+title = "Commit fixes or close validation bead"
+needs = ["fix-if-small"]
+description = """
+If fixes were made, describe, move main, and push:
+
+```bash
+jj describe -m "registry: fix validation issues"
+jj bookmark set main -r @
+jj git push
+```
+
+If no fixes were needed, close the bead with a note that validation passed.
+
+Exit criteria:
+
+- any committed fixes are on main and pushed
+- validation passes
+"""

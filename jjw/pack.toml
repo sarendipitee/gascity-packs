@@ -1,0 +1,6 @@
+[pack]
+name = "jjw"
+version = "0.1.0"
+schema = 2
+description = "Jujutsu workspace setup helpers backed by aranw/jjw."
+

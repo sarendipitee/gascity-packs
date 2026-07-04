@@ -1,0 +1,94 @@
+description = """
+JJ document-workspace implementation of the planning-base methodology contract.
+"""
+formula = "jj-planning-base"
+version = 1
+contract = "graph.v2"
+extends = ["planning-base"]
+target_required = false
+internal = true
+
+[vars]
+[vars.docs_workspace]
+description = "JJ workspace name that owns workflow documents."
+default = "default"
+
+[vars.docs_workspace_path]
+description = "Absolute path to the default@ checkout used for workflow documents."
+default = ""
+
+[vars.docs_base_revset]
+description = "Revset used to resolve the document checkout."
+default = "default@"
+
+[vars.docs_artifact_root]
+description = "Artifact root inside the default@ checkout."
+default = ""
+
+[vars.manifest_path]
+description = "Path to the workflow document manifest."
+default = ""
+
+[[steps]]
+id = "prepare-planning"
+title = "Prepare default@ planning document root"
+metadata = { "gc.run_target" = "gc.run-operator", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.base_revset" = "{{docs_base_revset}}", "gc.docs.artifact_root_keys" = "gc.docs.artifact_root,gc.var.docs_artifact_root,gc.var.artifact_root", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/prepare-document-workspace.md"
+
+[[steps]]
+id = "describe-requirements-change"
+title = "Describe requirements document change"
+needs = ["prepare-planning"]
+metadata = { "gc.run_target" = "gc.requirements-planner", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "requirements", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "requirements"
+title = "Produce jj-managed requirements"
+needs = ["prepare-planning", "describe-requirements-change"]
+metadata = { "gc.run_target" = "gc.requirements-planner", "gc.build.artifact_schema" = "gc.build.requirements.v1", "gc.build.artifact_path_keys" = "gc.build.requirements_path,gc.var.requirements_path,gc.docs.requirements.path", "gc.docs.managed" = "true", "gc.docs.document" = "requirements", "gc.docs.document_schema" = "gc.build.requirements.v1", "gc.docs.document_path_keys" = "gc.docs.requirements.path,gc.build.requirements_path,gc.var.requirements_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/write-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "describe-plan-change"
+title = "Describe plan document change"
+needs = ["requirements"]
+metadata = { "gc.run_target" = "gc.design-author", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "plan", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "plan"
+title = "Produce jj-managed implementation plan"
+needs = ["requirements", "describe-plan-change"]
+metadata = { "gc.run_target" = "gc.design-author", "gc.build.artifact_schema" = "gc.build.plan.v1", "gc.build.artifact_path_keys" = "gc.build.plan_path,gc.var.plan_path,gc.docs.plan.path", "gc.docs.managed" = "true", "gc.docs.document" = "plan", "gc.docs.document_schema" = "gc.build.plan.v1", "gc.docs.document_path_keys" = "gc.docs.plan.path,gc.build.plan_path,gc.var.plan_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/write-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "describe-plan-review-change"
+title = "Describe plan review document change"
+needs = ["plan"]
+metadata = { "gc.run_target" = "gc.review-synthesizer", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "plan-review", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "plan-review"
+title = "Approve jj-managed implementation plan"
+needs = ["plan", "describe-plan-review-change"]
+metadata = { "gc.run_target" = "gc.review-synthesizer", "gc.docs.managed" = "true", "gc.docs.document" = "plan-review", "gc.docs.document_schema" = "gc.docs.plan-review.v1", "gc.docs.document_path_keys" = "gc.docs.plan-review.path,gc.build.plan_review_path,gc.var.plan_review_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/review-document.md"

@@ -1,0 +1,148 @@
+description = """
+LazyJJ workflow for real work that syncs a stack with remote trunk.
+
+Use this when the assigned bead is an actual remote-sync job for a LazyJJ stack.
+The bead supplies the stack context, expected post-sync state, and
+verification. This formula supplies the LazyJJ procedure.
+
+This formula stays aligned with the upstream LazyJJ tutorial:
+`website/src/content/docs/tutorials/sync-remote.md`.
+"""
+formula = "mol-lazyjj-sync-remote"
+version = 1
+
+[vars]
+[vars.verification_command]
+description = "Focused command that proves the synced stack."
+default = ""
+
+[vars.publish_after_sync]
+description = "Whether this job should push stack updates after sync."
+default = "true"
+
+[[steps]]
+id = "sync"
+title = "Sync with trunk"
+description = """
+Sync the current stack with trunk.
+
+```bash
+jj stack-sync
+{{verification_command}}
+```
+
+The tutorial expands this to:
+
+```bash
+# Fetch latest from remote
+jj git fetch
+
+# Rebase your stack onto trunk
+jj restack
+```
+
+Exit criteria:
+
+- the stack has been fetched and rebased onto trunk
+"""
+
+[[steps]]
+id = "handle-conflicts"
+title = "Handle sync conflicts"
+needs = ["sync"]
+description = """
+Inspect and resolve conflicts if sync reports them.
+
+```bash
+jj stack-sync
+# Output might show: "Commit xyz has conflicts"
+
+# View what has conflicts
+jj status
+
+# JJ lets you continue working with conflicts present
+# Resolve them when you're ready:
+jj resolve
+```
+
+Exit criteria:
+
+- conflict state is understood
+- conflicts are resolved now or intentionally left for later
+"""
+
+[[steps]]
+id = "after-merge"
+title = "Sync after a PR merges"
+needs = ["sync"]
+description = """
+Use this path after one PR in the stack merges.
+
+```bash
+# Sync pulls in the merge and rebases remaining stack
+jj stack-sync
+
+# The merged PR's commit is now on trunk
+# Your remaining commits are rebased on top
+
+# Push the updated stack
+jj stack-submit
+```
+
+Exit criteria:
+
+- remaining stack commits are rebased on trunk
+- the updated stack is pushed
+"""
+
+[[steps]]
+id = "push"
+title = "Push the updated stack"
+needs = ["sync"]
+description = """
+Push after syncing.
+
+```bash
+jj stack-submit
+```
+
+Exit criteria:
+
+- the remote stack reflects the synced local stack
+"""
+
+[[steps]]
+id = "complete"
+title = "Run the complete sync workflow"
+description = """
+Run the full tutorial sync workflow.
+
+```bash
+# Sync with trunk
+jj stack-sync
+
+# Check for conflicts
+jj status
+
+# If conflicts, resolve them
+jj resolve      # Opens your conflict resolution tool
+
+# Push updates
+jj stack-submit
+```
+
+To view sync status:
+
+```bash
+# View your stack
+jj stack-view
+
+# Fetch without rebasing to see what's new
+jj git fetch
+jj log -r "trunk..@"    # See your commits relative to trunk
+```
+
+Exit criteria:
+
+- the stack is synced, inspected, and pushed
+"""

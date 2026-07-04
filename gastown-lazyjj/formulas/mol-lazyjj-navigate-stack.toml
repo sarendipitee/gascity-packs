@@ -1,0 +1,118 @@
+description = """
+LazyJJ workflow for real work that requires stack navigation.
+
+Use this when an agent needs to inspect or move through existing LazyJJ stack
+state to answer or prepare an actual bead. The bead supplies the question,
+target stack or change ID, and any follow-up verification. This formula
+supplies the LazyJJ procedure.
+
+This formula stays aligned with the upstream LazyJJ tutorial:
+`website/src/content/docs/tutorials/navigate-stack.md`.
+"""
+formula = "mol-lazyjj-navigate-stack"
+version = 1
+
+[vars]
+[vars.target_change_id]
+description = "Optional change ID to inspect or edit after viewing the stack."
+required = true
+
+[[steps]]
+id = "view"
+title = "View the current stack"
+description = """
+Inspect the current stack.
+
+```bash
+jj stack-view
+```
+
+Exit criteria:
+
+- the current stack and change IDs are visible
+"""
+
+[[steps]]
+id = "top"
+title = "Jump to the stack top"
+needs = ["view"]
+description = """
+Move back to the stack head.
+
+```bash
+jj stack-top
+```
+
+Exit criteria:
+
+- the working copy is at the stack top
+"""
+
+[[steps]]
+id = "edit"
+title = "Edit a specific commit"
+needs = ["view"]
+description = """
+Move to a specific stack commit by change ID.
+
+```bash
+jj edit "{{target_change_id}}"
+```
+
+Exit criteria:
+
+- the working copy is editing the chosen commit
+"""
+
+[[steps]]
+id = "status"
+title = "Check current position"
+needs = ["edit"]
+description = """
+Check where you are and inspect recent history.
+
+```bash
+# Full status
+jj status
+
+# Just the log showing current position
+jj log-short
+```
+
+Exit criteria:
+
+- the current working-copy position is clear
+"""
+
+[[steps]]
+id = "all-stacks"
+title = "Inspect all stacks"
+description = """
+View all current work and optionally move to another stack.
+
+```bash
+jj stacks-all
+```
+
+```bash
+# See all your work
+jj stacks-all
+
+# Edit a commit from a different stack
+jj edit <change-id-from-other-stack>
+
+# View just that stack
+jj stack-view
+```
+
+For a file-oriented stack view:
+
+```bash
+jj stack-files
+```
+
+Exit criteria:
+
+- available stacks are visible
+- any cross-stack navigation is intentional
+"""

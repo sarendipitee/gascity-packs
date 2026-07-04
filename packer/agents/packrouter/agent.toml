@@ -1,0 +1,12 @@
+scope = "rig"
+provider = "codex"
+wake_mode = "resume"
+# Packrouter is a persistent coordinator. Its formula is the routing workflow
+# contract, but an empty routed queue should leave it waiting for user direction.
+mode = "always"
+
+
+formula = "mol-packer-route"
+work_dir = "{{.RigRoot}}"
+nudge = "Run the packrouter startup scan from the rig root: inspect jj workspace state with advanced revsets, list pack workspaces and packs in play, then summarize and wait for user routing direction."
+idle_timeout = "2h"

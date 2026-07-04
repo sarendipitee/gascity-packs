@@ -1,0 +1,6 @@
+[order]
+description = "Verify live LazyJJ `.gc` runtime import parity"
+formula = "mol-lazyjj-runtime-verify"
+trigger = "cooldown"
+interval = "24h"
+pool = "dog"

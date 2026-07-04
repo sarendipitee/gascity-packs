@@ -1,0 +1,280 @@
+description = """
+Route broad pack-maintenance work into pack-scoped jj workspaces.
+
+Use this formula from a rig-root router session. Packrouter is a persistent
+named coordinator: it starts by inspecting the current pack/workspace state,
+summarizes what is in play, and waits for user routing direction. When a user
+request or routed bead exists, the router identifies target packs, creates one
+child bead per target pack, and dispatches those beads to the shared packsmith
+pool. Each packsmith session uses bead metadata to create a sparse jj workspace
+for the requested pack.
+
+The router is also responsible for aligning the new work with in-flight convoys
+and existing packsmith sessions. Reuse or chain existing beads and workspaces
+when the work is a continuation; create isolated task workspaces only when
+concurrent pack work must not share a working copy.
+
+An empty routed queue is not a shutdown condition for packrouter. Do not
+drain-ack just because there is no queued bead; stay available for user
+direction.
+"""
+formula = "mol-packer-route"
+version = 1
+
+[[steps]]
+id = "startup-scan"
+title = "Scan pack workspace state from the rig root"
+description = """
+Run a read-only startup scan from the rig root before deciding what to route.
+This scan is useful even when no routed bead is queued, because the router's job
+is to understand the pack workspace graph and wait for user direction.
+
+```bash
+pwd
+jj status
+jj workspace list
+jj log -r 'present(@) | ancestors(immutable_heads().., 2) | present(trunk()) | bookmarks("gc/*")' --no-graph
+packer/assets/scripts/list-pack-workspaces.sh
+find . -maxdepth 2 -name pack.toml -print | sort
+gc session list --state all
+```
+
+Exit criteria:
+
+- current workspace state is known
+- pack workspaces and sessions in play are listed
+- `gc/<pack>` bookmarks and nearby workspace heads are summarized
+- active or likely relevant packs are identified
+- the router is waiting for user direction when there is no specific request
+"""
+
+[[steps]]
+id = "load-request"
+title = "Load request or queued routed work"
+needs = ["startup-scan"]
+description = """
+When the user gives a request, use that request as the routing input. When the
+user asks you to process queued routed work, claim exactly one queued bead and
+route that request.
+
+```bash
+gc hook --claim --json
+bd show <claimed-bead-id>
+```
+
+If the hook reports no routed work, do not drain. Say that the packrouter queue
+is empty, keep the startup scan summary available, and wait for the user.
+
+Exit criteria:
+
+- a user request or claimed bead is understood, or no queued work is reported
+  without draining
+- the target pack or packs are explicit before creating child beads
+- shared registry/test/doc surfaces are identified
+"""
+
+[[steps]]
+id = "inspect-existing-convoys"
+title = "Inspect existing convoys, beads, and packsmith sessions"
+needs = ["load-request"]
+description = """
+Before creating new beads, check what is already in flight for the target packs.
+A convoy is a set of related beads and sessions working toward the same outcome;
+the router must decide whether to join an existing convoy or start a new one.
+
+```bash
+# Packsmith sessions/workspaces for the target pack
+packer/assets/scripts/list-pack-workspaces.sh --pack <pack-name>
+
+# All gc/* pack bookmarks and their states
+jj log -r 'bookmarks(\"gc/*\")' --no-graph -T 'bookmarks ++ \" \" ++ change_id.shortest() ++ \" \" ++ description.first_line() ++ \"\\n\"'
+
+# Active and parked agents if available
+gc session list --json --state all 2>/dev/null | head -c 20K
+```
+
+Look for:
+
+- an existing packsmith session already working on the same pack
+- an open parent bead whose children cover the same task
+- a convoy label or `gc.convoy` metadata tying beads together
+- empty or stalled `gc/<pack>` bookmarks that indicate an abandoned workspace
+
+Exit criteria:
+
+- existing sessions and beads for each target pack are listed
+- continuation vs. new-convoy decision is recorded
+- stale or abandoned workspaces are noted for cleanup
+"""
+
+[[steps]]
+id = "plan-pack-routes"
+title = "Plan pack routes"
+needs = ["inspect-existing-convoys"]
+description = """
+For each target pack, decide the pack route and pack root. In `gascity-packs`,
+the usual route for `jj-hunk` is:
+
+```text
+gc.pack=jj-hunk
+gc.pack_root=jj-hunk
+```
+
+All normal pack implementation beads route to the shared `packer.packsmith`
+agent. Do not require one packsmith agent per pack.
+
+Choose the workspace model based on the convoy state:
+
+| situation | workspace choice |
+| --- | --- |
+| no existing session and work fits one bead | pack-named integration workspace |
+| pack integration or follow-up work | same pack-named integration workspace |
+| concurrent work that must not share `@` | child workspace under the pack |
+| isolated one-off task | child workspace derived from child bead id/title |
+
+Before deciding, inspect existing packsmith sessions:
+
+```bash
+packer/assets/scripts/list-pack-workspaces.sh --pack <pack-name>
+```
+
+The helper reads `gc session list --json --state all` and reports matching
+packsmith sessions with their target, `work_dir`, workspace key, and title.
+Reuse the existing workspace metadata when follow-up work belongs with a worker
+already sitting in that workspace.
+
+The pack-named workspace `.gc/workspaces/<rig>/packs/<pack>` is the integration
+workspace for that pack. Child workspaces under it start from the pack
+integration head and land back into that pack workspace; they do not land
+directly to `default@`.
+
+If multiple target packs must land together, record the dependency so their
+landing can be coordinated.
+
+Exit criteria:
+
+- every target pack has `gc.pack` and `gc.pack_root` values
+- route target is the shared packsmith pool
+- existing packsmith workspaces were checked for each implementation target
+- continuation beads point at the same workspace as their predecessor
+- child workspaces have a clear path back to the pack-named integration
+  workspace
+- any ambiguous pack target is reported clearly
+"""
+
+[[steps]]
+id = "create-pack-beads"
+title = "Create pack-scoped beads"
+needs = ["plan-pack-routes"]
+description = """
+Create one child bead per target pack. Each child bead should include:
+
+- target pack name
+- resolved pack root if it differs from the pack name
+- formula `mol-packer-work`
+- acceptance criteria
+- verification command, usually `gc lint <pack>`
+- dependencies on other child beads when order matters
+- convoy metadata when this bead continues or joins a convoy
+
+Use metadata or notes to preserve the route decision. For the default reusable
+pack workspace, set the pack fields and omit `gc.pack_workspace`:
+
+```text
+gc.pack=<pack>
+gc.pack_root=<pack-root>
+```
+
+GC will derive the concrete workspace from the pack:
+
+```text
+.gc/workspaces/<rig>/packs/<pack>
+```
+
+For work that must use a named child workspace below the pack, also set:
+
+```text
+gc.pack_workspace=<workspace-name>
+```
+
+`gc.pack_workspace` is a workspace key under the pack directory. It is not a
+path and must not contain slashes. That child workspace integrates back into the
+pack-named workspace for the same pack.
+
+When continuing a convoy, set or preserve convoy metadata:
+
+```text
+gc.convoy=<convoy-name>
+gc.continuation_of=<previous-bead-id>
+```
+
+Prefer the packer helper so the child bead and sling route stay consistent:
+
+```bash
+packer/assets/scripts/create-pack-bead.sh \
+  --parent <parent-bead-id> \
+  --pack <pack-name> \
+  --pack-root <pack-root> \
+  --title "<pack-name>: <specific implementation task>" \
+  --description "<task details>" \
+  --acceptance "gc lint <pack-name> passes"
+```
+
+To reuse an existing workspace, add:
+
+```bash
+--workspace <workspace-name>
+```
+
+Use the workspace value printed by `list-pack-workspaces.sh`. A `WORKSPACE` of
+`-` means the reusable default pack workspace, so omit `--workspace`.
+
+To create an isolated workspace named from the child bead id and title, add:
+
+```bash
+--task-workspace
+```
+
+The helper writes `gc.pack`, `gc.pack_root`, `gc.formula=mol-packer-work`, and
+`gc.route_target` metadata before dispatch. It also writes `gc.pack_workspace`
+when `--workspace` or `--task-workspace` is provided.
+
+Exit criteria:
+
+- child beads are claim-sized
+- target pack is visible in each bead
+- default pack-workspace beads omit `gc.pack_workspace`
+- child workspace beads set `gc.pack_workspace`
+- continuation beads preserve convoy metadata
+- dependencies encode only real ordering constraints
+"""
+
+[[steps]]
+id = "dispatch-pack-beads"
+title = "Dispatch pack beads"
+needs = ["create-pack-beads"]
+description = """
+Dispatch each child bead to the shared packsmith pool and formula.
+
+Typical shape:
+
+```bash
+gc sling <rig>/packer.packsmith <child-bead-id> --on mol-packer-work
+```
+
+The child bead must carry `gc.pack` and `gc.pack_root` metadata so packsmith's
+pre-start hook can sparse-checkout the correct pack before the bead is claimed.
+If `gc.pack_workspace` is set, packsmith uses that named workspace under the
+pack; otherwise GC reuses the pack-named integration workspace itself. Do not
+dispatch a bead whose target pack is ambiguous.
+
+After dispatch, update the parent bead notes with the child bead IDs, their
+target packs, their workspace keys, and any convoy grouping. This visibility
+lets future routers and packsmith agents understand the convoy shape.
+
+Exit criteria:
+
+- every child bead is routed to `packer.packsmith`
+- the parent bead notes list child beads, targets, workspaces, and convoys
+- any unrouted pack is explicitly recorded
+"""

@@ -1,0 +1,7 @@
+scope = "rig"
+provider = "omp-tasksmith"
+wake_mode = "fresh"
+formula = "mol-jj-hunk-subagent-task"
+work_dir = "{{.RigRoot}}"
+nudge = "Await a concrete jj-hunk task-shaping request. Do not create beads from startup alone."
+idle_timeout = "2h"

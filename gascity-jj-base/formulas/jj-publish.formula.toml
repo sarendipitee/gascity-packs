@@ -1,0 +1,61 @@
+description = """
+JJ document-workspace implementation of the publish contract.
+"""
+formula = "jj-publish"
+version = 1
+contract = "graph.v2"
+extends = ["publish"]
+target_required = false
+internal = true
+
+[vars]
+[vars.docs_workspace]
+description = "JJ workspace name that owns workflow documents."
+default = "default"
+
+[vars.docs_workspace_path]
+description = "Absolute path to the default@ checkout used for workflow documents."
+default = ""
+
+[vars.manifest_path]
+description = "Path to the workflow document manifest."
+default = ""
+
+[vars.source_workspace]
+description = "JJ workspace used for source implementation work."
+default = ""
+
+[vars.source_workspace_path]
+description = "Absolute path to the jj source implementation workspace."
+default = ""
+
+[vars.source_change_id]
+description = "JJ change ID containing the latest source implementation state."
+default = ""
+
+[[steps]]
+id = "preflight"
+title = "Run jj publish preflight"
+metadata = { "gc.run_target" = "gc.run-operator", "gc.docs.managed" = "true", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/publish.md"
+
+[[steps]]
+id = "confirm-described-source-change"
+title = "Confirm described source change"
+needs = ["preflight"]
+metadata = { "gc.run_target" = "gc.publisher", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "source", "gc.docs.managed" = "true", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "push"
+title = "Push jj source bookmark if authorized"
+needs = ["preflight", "confirm-described-source-change"]
+metadata = { "gc.run_target" = "gc.publisher", "gc.docs.managed" = "true", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/publish.md"
+
+[[steps]]
+id = "open-pr"
+title = "Open PR for jj source change if authorized"
+needs = ["push"]
+metadata = { "gc.run_target" = "gc.publisher", "gc.docs.managed" = "true", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/publish.md"

@@ -1,0 +1,84 @@
+description = """
+JJ document-workspace implementation of the city-wide root task stage report.
+
+The report filters out obvious workflow artifacts by default:
+- child/subtask beads;
+- step, spec, convoy, molecule, gate, message, and event types;
+- beads with gc.kind workflow metadata;
+- wisp/order beads.
+"""
+formula = "root-task-stage-report"
+version = 1
+contract = "graph.v2"
+target_required = false
+mode = "report"
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[catalog]
+name = "root-task-stage-report"
+description = "Generate a tracked JJ document report of active root tasks across rigs with inferred lifecycle stage."
+
+[vars]
+[vars.docs_workspace]
+description = "JJ workspace name that owns workflow documents."
+default = "default"
+
+[vars.docs_workspace_path]
+description = "Absolute path to the default@ checkout used for workflow documents."
+default = ""
+
+[vars.docs_base_revset]
+description = "Revset used to resolve the document checkout."
+default = "default@"
+
+[vars.docs_artifact_root]
+description = "Artifact root inside the default@ checkout."
+default = ""
+
+[vars.manifest_path]
+description = "Path to the workflow document manifest."
+default = ""
+
+[vars.report_path]
+description = "Report path under the JJ document artifact root. Empty means <docs_artifact_root>/root-task-stage-report.md."
+default = ""
+
+[vars.rigs]
+description = "Comma-separated rig names to inspect; empty means all non-HQ rigs."
+default = ""
+
+[vars.include_wisps]
+description = "Set to true to include gc-wisp/order beads that are excluded by default."
+default = "false"
+enum = ["false", "true"]
+
+[vars.include_workflow_metadata]
+description = "Set to true to include beads that carry gc.kind workflow metadata."
+default = "false"
+enum = ["false", "true"]
+
+[vars.script_path]
+description = "Path to the source-controlled report generator script."
+default = "gascity-jj-base/assets/scripts/root-task-stage-report.js"
+
+[[steps]]
+id = "prepare-report-docs"
+title = "Prepare default@ root task report document root"
+metadata = { "gc.run_target" = "gc.run-operator", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.base_revset" = "{{docs_base_revset}}", "gc.docs.artifact_root_keys" = "gc.docs.artifact_root,gc.var.docs_artifact_root,gc.var.artifact_root", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/prepare-document-workspace.md"
+
+[[steps]]
+id = "describe-report-change"
+title = "Describe root task report document change"
+needs = ["prepare-report-docs"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "root-task-stage-report", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "generate-report"
+title = "Generate JJ-managed root task stage report"
+needs = ["prepare-report-docs", "describe-report-change"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.build.artifact_schema" = "gc.reports.root-task-stage.v1", "gc.build.artifact_path_keys" = "gc.report.root_task_stage_path,gc.var.report_path,gc.docs.root-task-stage-report.path", "gc.docs.managed" = "true", "gc.docs.document" = "root-task-stage-report", "gc.docs.document_schema" = "gc.reports.root-task-stage.v1", "gc.docs.document_path_keys" = "gc.docs.root-task-stage-report.path,gc.report.root_task_stage_path,gc.var.report_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.report.script_path" = "{{script_path}}", "gc.report.report_path" = "{{report_path}}", "gc.report.rigs" = "{{rigs}}", "gc.report.include_wisps" = "{{include_wisps}}", "gc.report.include_workflow_metadata" = "{{include_workflow_metadata}}" }
+description_file = "../assets/workflows/jj-docs/root-task-stage-report.md"

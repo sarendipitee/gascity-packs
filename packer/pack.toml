@@ -1,0 +1,13 @@
+[pack]
+name = "packer"
+version = "0.1.0"
+schema = 2
+description = "Pack-routed jj workspace workflow for maintaining one pack at a time in gascity-packs."
+
+[imports.jjw]
+source = "../jjw"
+
+[[named_session]]
+template = "packrouter"
+scope = "rig"
+mode = "always"

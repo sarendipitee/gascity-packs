@@ -1,0 +1,140 @@
+description = """
+Land one or more gascity-packs pack lines onto main.
+
+Use this formula from the rig-root packrouter session when pack development
+bookmarks have diverged from origin/main and need to be integrated. The formula
+expects the caller to see the whole repository so it can compare pack heads,
+detect cross-pack dependencies, and create merge commits when multiple packs
+must land together.
+"""
+formula = "mol-packer-land"
+version = 1
+
+[[steps]]
+id = "identify-packs"
+title = "Identify pack heads and landing path"
+description = """
+Find the commits that actually contain each pack's content. Pack development
+often leaves empty workspace commits at the tip of a bookmark, and the same pack
+may have more than one local bookmark (e.g. `packer` and `gc/packer`). Pick the
+real content head, not an empty placeholder.
+
+```bash
+jj bookmark list -a
+jj log -r 'main..<candidate>'
+jj log -r '<candidate>..main'
+jj diff --from main --to <candidate> --stat
+```
+
+Exit criteria:
+
+- every pack to land has a single content head change ID
+- the relationship to `main` is known (descendant, sibling, or divergent)
+- cross-pack dependencies are written down
+- empty placeholder commits at the tip are noted for cleanup
+"""
+
+[[steps]]
+id = "validate-packs"
+title = "Validate each pack"
+needs = ["identify-packs"]
+description = """
+Run `gc lint <pack>` from a workspace that contains the pack files. If the
+current rig-root working copy is not on the pack line, switch to it first with
+`jj new <head> -m "..."` or work in a dedicated workspace.
+
+```bash
+gc lint <pack>
+```
+
+If lint fails, fix the issue on the pack line, describe the fix, and re-run
+lint. Do not land a pack that does not lint cleanly.
+
+Exit criteria:
+
+- `gc lint <pack>` passes for every pack being landed
+- any fixes are committed and described on the pack line
+"""
+
+[[steps]]
+id = "clean-landing-path"
+title = "Clean empty or undescribed commits on the landing path"
+needs = ["identify-packs"]
+description = """
+`jj git push` refuses to push commits with no description. Find any empty or
+undescribed commits between `main@origin` and the chosen pack heads, then either
+describe them or abandon them if they carry no content.
+
+```bash
+jj log -r 'main@origin..<head>' -T 'change_id ++ " " ++ description.first_line() ++ "\\n"'
+jj describe -r <empty-change-id> -m "<pack>: workspace checkpoint"
+# or, if truly empty and unneeded:
+# jj abandon <empty-change-id>
+```
+
+Exit criteria:
+
+- every commit in the landing path has a description
+- no unintentional empty commits remain between `main@origin` and the heads
+"""
+
+[[steps]]
+id = "merge-to-main"
+title = "Merge pack heads onto main"
+needs = ["validate-packs", "clean-landing-path"]
+description = """
+Create a merge commit on top of `main` with the pack content heads as parents.
+Use a single merge when packs are interdependent; land one pack at a time only
+when the later pack is a clean descendant of the newly landed main.
+
+```bash
+jj new main <head-1> [<head-2> ...] -m "Land <pack-1>[, <pack-2>, ...] packs"
+jj bookmark set main -r @
+```
+
+Exit criteria:
+
+- `main` points to a merge commit whose parents include `main@origin` and every
+  chosen pack head
+- the merge commit has a description
+- `jj status` shows no unresolved conflicts
+"""
+
+[[steps]]
+id = "push-main"
+title = "Push main to origin"
+needs = ["merge-to-main"]
+description = """
+Push the moved `main` bookmark. This must be a fast-forward from
+`main@origin`; if it is not, stop and rebase the landing onto the latest remote
+main first.
+
+```bash
+jj git push
+```
+
+Exit criteria:
+
+- `jj git push` reports `main` moved forward
+- `main@origin` matches local `main`
+"""
+
+[[steps]]
+id = "verify-landed"
+title = "Verify from main"
+needs = ["push-main"]
+description = """
+Confirm the packs are present and lint-clean on the now-published main.
+
+```bash
+jj log -r 'main@origin | main' -T builtin_log_oneline
+gc lint <pack-1>
+gc lint <pack-2>
+```
+
+Exit criteria:
+
+- `main` and `main@origin` are at the landing merge
+- every landed pack passes `gc lint` from main
+- no new empty working-copy commits are left un-described
+"""

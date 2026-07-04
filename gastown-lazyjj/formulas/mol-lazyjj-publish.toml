@@ -1,0 +1,88 @@
+description = """
+LazyJJ stacked PR publication workflow.
+
+This formula is for a jj workspace that already contains a focused LazyJJ
+stack and needs to publish that stack to GitHub review objects.
+
+The workflow is intentionally stack-first:
+1. inspect the current stack and verify jj + GitHub prerequisites
+2. create a review bookmark for the stack tail
+3. publish the bookmark and open GitHub PRs in stack order
+4. record enough context that the next session can resume without guessing
+
+The formula does not create the feature work itself. It assumes the stack is
+already present and the author wants to publish it with jj bookmarks plus the
+GitHub CLI.
+"""
+formula = "mol-lazyjj-publish"
+version = 1
+
+[vars]
+[vars.publish_mode]
+description = "Publication mode: stacked publishes the full dependent stack; independent cherry-picks each change."
+default = "stacked"
+enum = ["stacked", "independent"]
+
+[vars.review_limit]
+description = "Optional limit for the stack review scan."
+default = "40"
+
+[vars.review_bookmark]
+description = "Bookmark name to expose as the review branch."
+default = "lazyjj-publish"
+
+[[steps]]
+id = "inspect"
+title = "Inspect the LazyJJ stack before publishing"
+description = """
+Make sure the workspace is ready for publication and the stack shape is what
+you expect.
+
+```bash
+gc prime
+jj git fetch
+jj log -r 'trunk() | stack' --limit {{review_limit}}
+jj log -r 'stack & no_description'
+jj bookmark set "{{review_bookmark}}" -r @-
+jj git push --bookmark "{{review_bookmark}}"
+gh pr list --head "{{review_bookmark}}"
+```
+
+If the stack is not ready, stop here and fix the workspace before publishing.
+"""
+
+[[steps]]
+id = "publish"
+title = "Publish the stacked PRs"
+needs = ["inspect"]
+description = """
+Publish the review stack to GitHub.
+
+```bash
+jj bookmark set "{{review_bookmark}}" -r @-
+jj git push --bookmark "{{review_bookmark}}"
+gh pr create --fill
+```
+
+If the repository requires a later land step, the PRs are now ready for the
+normal GitHub review and merge flow.
+"""
+
+[[steps]]
+id = "record"
+title = "Record the publication state"
+needs = ["publish"]
+description = """
+Capture the published stack state for the next session.
+
+```bash
+jj log -r 'trunk() | stack' --limit {{review_limit}}
+gh pr list --head "{{review_bookmark}}"
+```
+
+Exit criteria:
+
+- the stack is published as PRs
+- the next session can resume from the same jj graph state
+- no extra work is hidden outside the stack
+"""

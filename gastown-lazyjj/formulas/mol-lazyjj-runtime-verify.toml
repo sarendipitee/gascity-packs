@@ -1,0 +1,83 @@
+description = """
+Verify that the live `.gc` runtime is using the current LazyJJ pack contents.
+
+Registry entries cover published source and release metadata; this formula
+checks the live `.gc` import state instead. It reloads the active city,
+verifies the imported pack state, compiles the key LazyJJ formula surface, and
+renders the runtime prompt strictly so source and runtime drift is caught
+without creating beads.
+
+Read each step before acting. Keep the checks focused and non-destructive.
+"""
+formula = "mol-lazyjj-runtime-verify"
+version = 1
+
+[vars]
+[vars.agent]
+description = "Optional agent template to render strictly."
+default = "runner"
+
+[vars.formula_name]
+description = "Primary LazyJJ formula to compile and validate."
+default = "mol-polecat-lazyjj-work"
+
+[[steps]]
+id = "inspect"
+title = "Inspect runtime and import inputs"
+description = """
+Record the active city and current import state before changing anything.
+
+```bash
+gc status
+gc import list
+gc config explain
+```
+
+Exit criteria:
+
+- the active city is visible
+- the current import state is visible
+- the resolved config provenance is visible
+"""
+
+[[steps]]
+id = "reload-and-verify-imports"
+title = "Reload the city and verify imports"
+needs = ["inspect"]
+description = """
+Reload the active city config and verify the import state.
+
+```bash
+gc reload
+gc import check
+```
+
+If the pack is not imported, or the import state is stale, stop and fix the
+pack/runtime wiring before continuing.
+
+Exit criteria:
+
+- reload succeeds
+- import state is healthy
+- the live city import state is current
+"""
+
+[[steps]]
+id = "compile-and-render"
+title = "Compile LazyJJ formulas and render the runtime prompt"
+needs = ["reload-and-verify-imports"]
+description = """
+Compile the key LazyJJ formula surface and render the runtime prompt strictly.
+
+```bash
+gc formula show "{{formula_name}}"
+gc prime "{{agent}}" --strict
+```
+
+If the prompt render fails, the pack and live runtime are out of sync.
+
+Exit criteria:
+
+- the core LazyJJ formula compiles
+- the runtime prompt renders strictly
+"""

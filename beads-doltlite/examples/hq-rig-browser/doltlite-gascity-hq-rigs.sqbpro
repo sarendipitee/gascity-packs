@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sqlb_project>
+  <db path="/data/projects/doltlite-gascity/.beads/doltlite/hq.db" readonly="1" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/>
+  <attached>
+    <db schema="rig_bd" path="/data/projects/doltlite-gascity/beads-doltlite/.beads/doltlite/bd.db"/>
+    <db schema="rig_gc" path="/data/projects/doltlite-gascity/gascity/.beads/doltlite/gc.db"/>
+    <db schema="rig_gp" path="/data/projects/doltlite-gascity/gascity-packs/.beads/doltlite/gp.db"/>
+    <db schema="rig_gd" path="/data/projects/doltlite-gascity/gascity/gascity-dashboard/.beads/doltlite/gd.db"/>
+    <db schema="rig_lj" path="/data/projects/doltlite-gascity/lightjj/.beads/doltlite/lj.db"/>
+  </attached>
+  <window>
+    <main_tabs open="structure browse pragma sql plot" current="3"/>
+  </window>
+  <tab_sql>
+    <sql name="Formula progress" filename="/data/projects/doltlite-gascity/gascity/examples/beads-doltlite/examples/formula-progress/doltlite-gascity-formula-progress-no-attach.sql">-- Reference to formula progress SQL --</sql>
+    <current_tab id="0"/>
+  </tab_sql>
+</sqlb_project>

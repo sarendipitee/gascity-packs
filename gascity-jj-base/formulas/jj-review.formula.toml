@@ -1,0 +1,66 @@
+description = """
+JJ document-workspace implementation of the report-only review contract.
+"""
+formula = "jj-review"
+version = 1
+contract = "graph.v2"
+extends = ["review"]
+target_required = false
+mode = "report"
+
+[catalog]
+name = "jj-review"
+description = "Write a review report that consumes the jj document manifest and source change IDs."
+
+[vars]
+[vars.docs_workspace]
+description = "JJ workspace name that owns workflow documents."
+default = "default"
+
+[vars.docs_workspace_path]
+description = "Absolute path to the default@ checkout used for workflow documents."
+default = ""
+
+[vars.manifest_path]
+description = "Path to the workflow document manifest."
+default = ""
+
+[vars.source_workspace]
+description = "JJ workspace used for source implementation work."
+default = ""
+
+[vars.source_workspace_path]
+description = "Absolute path to the jj source review workspace."
+default = ""
+
+[vars.source_change_id]
+description = "JJ change ID containing the latest source implementation state."
+default = ""
+
+[[steps]]
+id = "validate-context"
+title = "Validate jj review context"
+metadata = { "gc.run_target" = "gc.run-operator", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/validate-review-context.md"
+
+[[steps]]
+id = "describe-review-report-change"
+title = "Describe review report document change"
+needs = ["validate-context"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "review", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "write-report"
+title = "Write jj review report"
+needs = ["validate-context", "describe-review-report-change"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer", "gc.build.artifact_schema" = "gc.build.review.v1", "gc.build.artifact_path_keys" = "gc.build.review_report_path,gc.var.report_path,gc.docs.review.path", "gc.docs.managed" = "true", "gc.docs.document" = "review", "gc.docs.document_schema" = "gc.build.review.v1", "gc.docs.document_path_keys" = "gc.docs.review.path,gc.build.review_report_path,gc.var.report_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/review-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"

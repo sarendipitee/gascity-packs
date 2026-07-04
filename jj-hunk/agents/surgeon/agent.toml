@@ -1,0 +1,12 @@
+scope = "rig"
+provider = "omp-surgeon"
+wake_mode = "fresh"
+formula = "mol-jj-hunk-work"
+work_dir = ".gc/workspaces/{{.Rig}}/jedi/{{.AgentBase}}"
+nudge = "Run gc hook; it checks assigned hunk-surgery work first, then routed pool work."
+# jj-hunk imports jjw in pack.toml. ConfigDir is this pack directory, so
+# ../jjw resolves the shared setup helper without depending on the process cwd.
+pre_start = ["{{.ConfigDir}}/../jjw/assets/scripts/workspace-setup.sh {{.RigRoot}} {{.WorkDir}} {{.AgentBase}} --sync${JJ_HUNK_WORK_BEAD_ID:+ --bead \"$JJ_HUNK_WORK_BEAD_ID\"}"]
+idle_timeout = "2h"
+min_active_sessions = 0
+max_active_sessions = 5

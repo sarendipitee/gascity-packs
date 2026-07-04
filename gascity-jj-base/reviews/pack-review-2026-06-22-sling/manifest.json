@@ -1,0 +1,43 @@
+{
+  "schema": "gc.docs.manifest.v1",
+  "workflow": "jj-review",
+  "purpose": "Sling-run review of the gascity-jj-base pack changes.",
+  "documents": {
+    "subject": {
+      "path": "gascity-jj-base/reviews/pack-review-2026-06-22-sling/subject.md",
+      "schema": "gc.review.subject.v1",
+      "change_id": "tynmlvxmoqkw"
+    },
+    "review": {
+      "path": "gascity-jj-base/reviews/pack-review-2026-06-22-sling/review.md",
+      "schema": "gc.build.review.v1",
+      "hash": "2c017a02fdc837bbad05119434ac93c157d847416ac54f1585175f8a7d690eed",
+      "change_id": "xylxutzm"
+    },
+    "fix_plan": {
+      "path": "gascity-jj-base/reviews/pack-review-2026-06-22-sling/fix-plan.md",
+      "schema": "gc.review.fix-plan.v1",
+      "hash": "8a63eb120f7554ac97edb329d88031203fdb0ff9613f85a433d2d6f595e1c76d",
+      "change_id": "twxnwoow"
+    },
+    "implementation_summary": {
+      "path": "gascity-jj-base/reviews/pack-review-2026-06-22-sling/implementation-summary.md",
+      "schema": "gc.review.implementation-summary.v1",
+      "hash": "c3a691cd76b205580638d36bd1cbdf754346757ee1dd73767994b38689d363a4",
+      "change_id": "wwppnzmw"
+    },
+    "re_review": {
+      "path": "gascity-jj-base/reviews/pack-review-2026-06-22-sling/re-review.md",
+      "schema": "gc.build.review.v1",
+      "hash": "bbc740095e1b01fc854ef7264392101daecc02e579a5ff57225c3b0072a8b61d",
+      "change_id": "psomunkvmqxployyltqxnstpropynquw"
+    }
+  },
+  "source": {
+    "workspace": "gascity-packs",
+    "workspace_path": "/data/projects/doltlite-gascity/gascity-packs",
+    "change_id": "wwppnzmw",
+    "commit_id": "a62e1259ad7a",
+    "pack_path": "gascity-jj-base"
+  }
+}

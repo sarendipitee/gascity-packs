@@ -1,0 +1,26 @@
+# Beads DoltLite — embedded DoltLite beads provider pack.
+#
+# Provides the DoltLite backend (embedded Dolt) as an alternative to the
+# managed Dolt SQL server. Cities select this pack by setting
+# [beads].backend = "doltlite" and bd_compatibility = "bd-1.0.5" in
+# city.toml, so beads use embedded DoltLite databases instead of a managed
+# Dolt server process.
+#
+# DoltLite stores each bead scope as a standalone embedded database under
+# .beads/doltlite/ — no server process, no port management, no TCP
+# health probes. Suitable for local dev, single-host deployments, and
+# environments where running a separate database server is undesirable.
+#
+# This pack carries the full gc-beads-doltlite-bd.sh exec provider wrapper
+# used for normal beads operations and writes. The builtin beads-doltlite-init
+# pack only supplies the small bootstrap provider needed before external packs
+# are installed. This pack also adds DoltLite-specific maintenance operations:
+# flatten (compact the SQLite WAL), gc (remove deleted beads), health (schema
+# integrity check), and build (rebuild gc or bd against libdoltlite).
+#
+# The doltlite backend in gc-beads-doltlite-bd.sh uses sqlite3 CLI for schema
+# initialization and bd CLI for bead operations. Both must be in PATH.
+
+[pack]
+name = "beads-doltlite"
+schema = 2

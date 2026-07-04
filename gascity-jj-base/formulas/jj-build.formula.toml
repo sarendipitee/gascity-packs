@@ -1,0 +1,269 @@
+description = """
+JJ document-workspace implementation of the Gas City build-base contract.
+
+This formula keeps the live bead database in DoltLite while requiring build
+documents to live under the default@ artifact root. The inherited build
+graph stays intact; this extension overrides document-producing steps and the
+implementation drains so downstream work receives manifest-managed paths.
+"""
+formula = "jj-build"
+version = 1
+contract = "graph.v2"
+extends = ["build-base"]
+target_required = true
+
+[catalog]
+name = "jj-build"
+description = "Run build-base with workflow documents tracked under the default@ artifact root."
+
+[metadata.gc.methodology]
+allowed_drain_policies = ["separate", "same-session"]
+implementation_strategy = "drain"
+interaction_modes = ["interactive", "autonomous", "headless"]
+review_modes = ["report", "agent", "interactive"]
+
+[vars]
+[vars.planning_formula]
+description = "JJ planning methodology formula."
+default = "jj-planning-base"
+
+[vars.decomposition_formula]
+description = "JJ decomposition methodology formula."
+default = "jj-decomposition-base"
+
+[vars.implementation_formula]
+description = "JJ implementation entry formula."
+default = "jj-implement"
+
+[vars.implementation_item_formula]
+description = "JJ single-item implementation formula."
+default = "jj-do-work-item"
+
+[vars.code_review_formula]
+description = "JJ code-review methodology formula."
+default = "jj-review"
+
+[vars.review_fix_formula]
+description = "JJ review-fix methodology formula."
+default = "jj-fix-loop"
+
+[vars.docs_workspace]
+description = "JJ workspace name that owns workflow documents."
+default = "default"
+
+[vars.docs_workspace_path]
+description = "Absolute path to the default@ checkout used for workflow documents."
+default = ""
+
+[vars.docs_base_revset]
+description = "Revset used to resolve the document checkout."
+default = "default@"
+
+[vars.docs_artifact_root]
+description = "Artifact root inside the default@ checkout."
+default = ""
+
+[vars.manifest_path]
+description = "Path to the workflow document manifest."
+default = ""
+
+[vars.source_workspace]
+description = "JJ workspace used for source implementation work."
+default = ""
+
+[vars.source_workspace_path]
+description = "Absolute path to the jj source implementation workspace."
+default = ""
+
+[vars.source_change_id]
+description = "JJ change ID containing the latest source implementation state."
+default = ""
+
+[[steps]]
+id = "prepare"
+title = "Prepare default@ document root"
+metadata = { "gc.run_target" = "gc.run-operator", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.base_revset" = "{{docs_base_revset}}", "gc.docs.artifact_root_keys" = "gc.docs.artifact_root,gc.var.docs_artifact_root,gc.var.artifact_root", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/prepare-document-workspace.md"
+
+[[steps]]
+id = "describe-requirements-change"
+title = "Describe requirements document change"
+needs = ["prepare"]
+metadata = { "gc.run_target" = "gc.requirements-planner", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "requirements", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "requirements"
+title = "Produce jj-managed requirements"
+needs = ["prepare", "describe-requirements-change"]
+metadata = { "gc.run_target" = "gc.requirements-planner", "gc.build.artifact_schema" = "gc.build.requirements.v1", "gc.build.artifact_path_keys" = "gc.build.requirements_path,gc.var.requirements_path,gc.docs.requirements.path", "gc.docs.managed" = "true", "gc.docs.document" = "requirements", "gc.docs.document_schema" = "gc.build.requirements.v1", "gc.docs.document_path_keys" = "gc.docs.requirements.path,gc.build.requirements_path,gc.var.requirements_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/write-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "describe-plan-change"
+title = "Describe plan document change"
+needs = ["requirements"]
+metadata = { "gc.run_target" = "gc.design-author", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "plan", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "plan"
+title = "Produce jj-managed implementation plan"
+needs = ["requirements", "describe-plan-change"]
+metadata = { "gc.run_target" = "gc.design-author", "gc.build.artifact_schema" = "gc.build.plan.v1", "gc.build.artifact_path_keys" = "gc.build.plan_path,gc.var.plan_path,gc.docs.plan.path", "gc.docs.managed" = "true", "gc.docs.document" = "plan", "gc.docs.document_schema" = "gc.build.plan.v1", "gc.docs.document_path_keys" = "gc.docs.plan.path,gc.build.plan_path,gc.var.plan_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/write-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "describe-plan-review-change"
+title = "Describe plan review document change"
+needs = ["plan"]
+metadata = { "gc.run_target" = "gc.review-synthesizer", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "plan-review", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "plan-review"
+title = "Review jj-managed implementation plan"
+needs = ["plan", "describe-plan-review-change"]
+metadata = { "gc.run_target" = "gc.review-synthesizer", "gc.docs.managed" = "true", "gc.docs.document" = "plan-review", "gc.docs.document_schema" = "gc.docs.plan-review.v1", "gc.docs.document_path_keys" = "gc.docs.plan-review.path,gc.build.plan_review_path,gc.var.plan_review_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/review-document.md"
+
+[[steps]]
+id = "describe-decomposition-change"
+title = "Describe decomposition document change"
+needs = ["plan-review"]
+metadata = { "gc.run_target" = "gc.task-decomposer", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "decomposition", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "decompose"
+title = "Decompose approved jj-managed plan"
+needs = ["plan-review", "describe-decomposition-change"]
+metadata = { "gc.run_target" = "gc.task-decomposer", "gc.build.artifact_schema" = "gc.build.decomposition.v1", "gc.build.artifact_path_keys" = "gc.build.decomposition_path,gc.var.decomposition_path,gc.docs.decomposition.path", "gc.docs.managed" = "true", "gc.docs.document" = "decomposition", "gc.docs.document_schema" = "gc.build.decomposition.v1", "gc.docs.document_path_keys" = "gc.docs.decomposition.path,gc.build.decomposition_path,gc.var.decomposition_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/write-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "implement"
+title = "Drain jj implementation convoy into separate sessions"
+needs = ["decompose"]
+condition = "{{drain_policy}} == separate"
+metadata = { "gc.run_target" = "{{implementation_target}}", "gc.docs.managed" = "true", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/drain-separate.md"
+
+[steps.drain]
+context = "separate"
+formula = "jj-do-work"
+member_access = "exclusive"
+
+[[steps]]
+id = "implement-same-session"
+title = "Drain jj implementation convoy in one shared session"
+needs = ["decompose"]
+condition = "{{drain_policy}} == same-session"
+metadata = { "gc.run_target" = "{{implementation_target}}", "gc.docs.managed" = "true", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id" }
+description_file = "../assets/workflows/jj-docs/drain-same-session.md"
+
+[steps.drain]
+context = "shared"
+formula = "jj-do-work-item"
+on_item_failure = "skip_remaining"
+member_access = "exclusive"
+
+[steps.drain.item]
+single_lane = true
+
+[[steps]]
+id = "describe-implementation-summary-change"
+title = "Describe implementation summary document change"
+needs = ["implement", "implement-same-session"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "implementation-summary", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "summarize-implementation"
+title = "Write jj-managed implementation summary"
+needs = ["implement", "implement-same-session", "describe-implementation-summary-change"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.build.artifact_schema" = "gc.build.implementation-summary.v1", "gc.build.artifact_path_keys" = "gc.build.implementation_summary_path,gc.docs.implementation-summary.path", "gc.docs.managed" = "true", "gc.docs.document" = "implementation-summary", "gc.docs.document_schema" = "gc.build.implementation-summary.v1", "gc.docs.document_path_keys" = "gc.docs.implementation-summary.path,gc.build.implementation_summary_path", "gc.docs.source_workspace_key" = "gc.docs.source_workspace,gc.var.source_workspace", "gc.docs.source_workspace_path_key" = "gc.docs.source_workspace_path,gc.var.source_workspace_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/summarize-implementation.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "describe-review-change"
+title = "Describe review document change"
+needs = ["summarize-implementation"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "review", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "review"
+title = "Review jj implementation"
+needs = ["summarize-implementation", "describe-review-change"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer", "gc.build.artifact_schema" = "gc.build.review.v1", "gc.build.artifact_path_keys" = "gc.build.review_report_path,gc.docs.review.path", "gc.docs.managed" = "true", "gc.docs.document" = "review", "gc.docs.document_schema" = "gc.build.review.v1", "gc.docs.document_path_keys" = "gc.docs.review.path,gc.build.review_report_path", "gc.docs.source_change_id_key" = "gc.docs.source_change_id,gc.var.source_change_id", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/review-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "describe-final-report-change"
+title = "Describe final report document change"
+needs = ["review"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.jj.describe" = "true", "gc.jj.describe_scope" = "document", "gc.jj.describe_document" = "final-report", "gc.docs.managed" = "true", "gc.docs.workspace_key" = "gc.docs.workspace,gc.var.docs_workspace", "gc.docs.workspace_path_key" = "gc.docs.workspace_path,gc.var.docs_workspace_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/describe-jj-change.md"
+
+[[steps]]
+id = "finalize"
+title = "Finalize jj-managed build result"
+needs = ["review", "describe-final-report-change"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.build.artifact_schema" = "gc.build.final-report.v1", "gc.build.artifact_path_keys" = "gc.build.final_report_path,gc.docs.final-report.path", "gc.docs.managed" = "true", "gc.docs.document" = "final-report", "gc.docs.document_schema" = "gc.build.final-report.v1", "gc.docs.document_path_keys" = "gc.docs.final-report.path,gc.build.final_report_path", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/write-document.md"
+
+[steps.check]
+max_attempts = 3
+
+[steps.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"
+
+[[steps]]
+id = "publish"
+title = "Optionally publish jj build result"
+needs = ["finalize"]
+metadata = { "gc.run_target" = "gc.publisher", "gc.docs.managed" = "true", "gc.docs.manifest_path_keys" = "gc.docs.manifest_path,gc.var.manifest_path" }
+description_file = "../assets/workflows/jj-docs/publish.md"

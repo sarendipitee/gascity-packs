@@ -1,0 +1,27 @@
+[pack]
+name = "jj-hunk"
+version = "0.1.2"
+schema = 2
+description = "Agent-safe jj hunk selection workflows and subagent workspace tasking."
+
+[imports.jjw]
+source = "../jjw"
+
+[providers.omp-tasksmith]
+display_name = "Oh My Pi Tasksmith"
+command = "/home/ubuntu/.bun/bin/omp"
+prompt_mode = "arg"
+ready_delay_ms = 1000
+path_check = "/home/ubuntu/.bun/bin/omp"
+
+[providers.omp-surgeon]
+display_name = "Oh My Pi Surgeon"
+command = "/home/ubuntu/.bun/bin/omp"
+prompt_mode = "arg"
+ready_delay_ms = 1000
+path_check = "/home/ubuntu/.bun/bin/omp"
+
+[[named_session]]
+template = "tasksmith"
+scope = "rig"
+mode = "always"

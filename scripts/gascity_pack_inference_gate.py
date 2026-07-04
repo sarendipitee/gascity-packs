@@ -98,6 +98,16 @@ GASTOWN_FORMULA_CONTRACTS = {
         "gc session list --state=all --json",
     ),
 }
+NAMED_SESSION_ROUTE_KEYS = ("assignee", "owner", "agent", "agent_id", "session")
+POOL_DEMAND_ROUTE_KEYS = ("gc.routed_to", "routed_to")
+POOL_TEMPLATE_NAMES = ("polecat", "dog")
+
+
+def is_pool_template_target(target: str) -> bool:
+    base = target.rsplit("/", 1)[-1].rsplit(".", 1)[-1].strip()
+    return base in POOL_TEMPLATE_NAMES
+
+
 GASTOWN_BUILD_WORKFLOW_CONTRACTS = {
     "mol-polecat-work": (
         "EXPECTED_BRANCH=\"polecat/$WORK_BEAD_ID\"",
@@ -1953,20 +1963,10 @@ def bead_route_targets(bead: Mapping[str, Any]) -> list[str]:
 
 def route_metadata_key(key: str) -> bool:
     return (
-        key in {
-            "gc.run_target",
-            "gc.routed_to",
-            "gc.target",
-            "gc.assignee",
-            "run_target",
-            "routed_to",
-            "target",
-            "assignee",
-        }
-        or key.endswith(".run_target")
-        or key.endswith(".routed_to")
-        or key.endswith("_run_target")
-        or key.endswith("_routed_to")
+        named_session_metadata_key(key)
+        or run_target_metadata_key(key)
+        or pool_demand_metadata_key(key)
+        or key in {"gc.target", "target"}
     )
 
 
@@ -2008,6 +2008,197 @@ def route_matches(actual: str, expected: str) -> bool:
     if actual == expected:
         return True
     return actual.endswith(f"/{expected}")
+
+
+def named_session_metadata_key(key: str) -> bool:
+    return any(
+        key in {route_key, f"gc.{route_key}"}
+        or key.endswith(f".{route_key}")
+        or key.endswith(f"_{route_key}")
+        for route_key in NAMED_SESSION_ROUTE_KEYS
+    )
+
+
+def run_target_metadata_key(key: str) -> bool:
+    return (
+        key in {"gc.run_target", "run_target"}
+        or key.endswith(".run_target")
+        or key.endswith("_run_target")
+    )
+
+
+def pool_demand_metadata_key(key: str) -> bool:
+    return key in POOL_DEMAND_ROUTE_KEYS or key.endswith(".routed_to") or key.endswith("_routed_to")
+
+
+def flatten_mapping(table: Mapping[str, Any], *, prefix: str = "") -> dict[str, Any]:
+    flat: dict[str, Any] = {}
+    for key, value in table.items():
+        full = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, Mapping):
+            flat.update(flatten_mapping(value, prefix=full))
+        else:
+            flat[full] = value
+    return flat
+
+
+def bead_named_session_targets(bead: Mapping[str, Any]) -> list[str]:
+    targets: list[str] = []
+    for key in NAMED_SESSION_ROUTE_KEYS:
+        value = bead.get(key)
+        if isinstance(value, str) and value.strip():
+            targets.append(value.strip())
+    metadata = bead.get("metadata")
+    if isinstance(metadata, dict):
+        for key, value in metadata.items():
+            if not named_session_metadata_key(key):
+                continue
+            for target in string_values(value):
+                targets.append(target)
+    return dedupe_strings(targets)
+
+
+def bead_pool_demand_targets(bead: Mapping[str, Any]) -> list[str]:
+    targets: list[str] = []
+    for key, value in bead.items():
+        if key == "metadata":
+            continue
+        if pool_demand_metadata_key(str(key)):
+            for target in string_values(value):
+                targets.append(target)
+        elif run_target_metadata_key(str(key)):
+            for target in string_values(value):
+                if is_pool_template_target(target):
+                    targets.append(target)
+    metadata = bead.get("metadata")
+    if isinstance(metadata, dict):
+        for key, value in metadata.items():
+            if pool_demand_metadata_key(key):
+                for target in string_values(value):
+                    targets.append(target)
+            elif run_target_metadata_key(key):
+                for target in string_values(value):
+                    if is_pool_template_target(target):
+                        targets.append(target)
+    return dedupe_strings(targets)
+
+
+def route_separation_targets(table: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+    normalized: dict[str, Any] = dict(table)
+    metadata = normalized.get("metadata")
+    if isinstance(metadata, Mapping):
+        normalized["metadata"] = flatten_mapping(metadata)
+    return bead_named_session_targets(normalized), bead_pool_demand_targets(normalized)
+
+
+def validate_route_separation(
+    beads: Sequence[Mapping[str, Any]],
+    *,
+    context: str,
+) -> None:
+    offenders: list[str] = []
+    for bead in beads:
+        named, pooled = route_separation_targets(bead)
+        if named and pooled:
+            bead_id = bead.get("id") or bead.get("title") or "<unknown>"
+            offenders.append(
+                f"bead {bead_id}: named-session assignment {named!r} "
+                f"conflicts with pool-demand routing {pooled!r}"
+            )
+    if offenders:
+        raise GateError(
+            f"{context} mixes named-session assignment and pool-demand routing:\n"
+            + "\n".join(f"- {item}" for item in offenders)
+        )
+
+
+def validate_formula_route_separation(path: Path, *, context: str) -> None:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise GateError(f"{context}: invalid TOML in {path}: {exc}") from exc
+    offenders: list[str] = []
+    source = path.name
+
+    for label, table in formula_route_tables(document):
+        named, pooled = route_separation_targets(table)
+        if named and pooled:
+            offenders.append(
+                f"{source}:{label}: route data mixes named-session assignment {named!r} "
+                f"with pool-demand routing {pooled!r}"
+            )
+
+    if offenders:
+        raise GateError(
+            f"{context} formula route separation violated:\n"
+            + "\n".join(f"- {item}" for item in offenders)
+        )
+
+
+def formula_route_tables(document: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    tables: list[tuple[str, Mapping[str, Any]]] = [("top-level", document)]
+    for step_id, step in steps_by_id(document).items():
+        tables.append((f"step {step_id}", step))
+    for index, template in enumerate(list_dicts(document.get("template")), start=1):
+        template_id = template.get("id")
+        label = (
+            f"template {template_id}"
+            if isinstance(template_id, str) and template_id
+            else f"template {index}"
+        )
+        tables.extend(formula_template_route_tables(label, template))
+    return tables
+
+
+def formula_template_route_tables(label: str, table: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    tables: list[tuple[str, Mapping[str, Any]]] = [(label, table)]
+    for index, child in enumerate(list_dicts(table.get("children")), start=1):
+        child_id = child.get("id")
+        child_label = (
+            f"{label}/child {child_id}"
+            if isinstance(child_id, str) and child_id
+            else f"{label}/child {index}"
+        )
+        tables.extend(formula_template_route_tables(child_label, child))
+    return tables
+
+
+def validate_methodology_route_separation(context: str) -> None:
+    offenders: list[str] = []
+    for pack_name, contract in METHODOLOGY_FLOW_CONTRACTS.items():
+        build_steps = contract.get("build_steps", {})
+        if isinstance(build_steps, dict):
+            for step_id, expectations in build_steps.items():
+                if not isinstance(expectations, Mapping):
+                    continue
+                named, pooled = route_separation_targets(expectations)
+                if named and pooled:
+                    offenders.append(
+                        f"{pack_name}:{step_id}: named-session assignment {named!r} "
+                        f"conflicts with pool-demand routing {pooled!r}"
+                    )
+                run_target = expectations.get("run_target")
+                if isinstance(run_target, str) and is_pool_template_target(run_target):
+                    offenders.append(
+                        f"{pack_name}:{step_id}: run_target {run_target!r} is a pool-demand template"
+                    )
+        expansion_routes = contract.get("expansion_routes", {})
+        if isinstance(expansion_routes, dict):
+            for expansion_name, routes in expansion_routes.items():
+                if not isinstance(routes, (list, tuple)):
+                    continue
+                for route in routes:
+                    if isinstance(route, str) and is_pool_template_target(route):
+                        offenders.append(
+                            f"{pack_name}:{expansion_name}: expansion route {route!r} is a pool-demand template"
+                        )
+    if offenders:
+        raise GateError(
+            f"{context} methodology contracts must use named-session agents, not pool-demand templates:\n"
+            + "\n".join(f"- {item}" for item in offenders)
+        )
+
 
 
 def validate_required_routes(
@@ -2287,21 +2478,30 @@ def validate_methodology_flow_contract(pack_spec: PackSpec) -> None:
     contract = METHODOLOGY_FLOW_CONTRACTS.get(pack_spec.name)
     if contract is None:
         return
-    missing: list[str] = []
+    validate_methodology_route_separation(context=f"{pack_spec.name} methodology contract")
 
+    missing: list[str] = []
+    formula_paths: list[Path] = []
+
+    build_path = pack_spec.source / "formulas" / f"{pack_spec.build_formula}.formula.toml"
     build_document = load_methodology_formula(pack_spec.source, pack_spec.build_formula, missing)
-    review_document = load_methodology_formula(pack_spec.source, pack_spec.review_formula, missing)
     if build_document:
+        formula_paths.append(build_path)
         validate_methodology_build_formula(pack_spec, build_document, contract, missing)
+    review_path = pack_spec.source / "formulas" / f"{pack_spec.review_formula}.formula.toml"
+    review_document = load_methodology_formula(pack_spec.source, pack_spec.review_formula, missing)
     if review_document:
+        formula_paths.append(review_path)
         validate_methodology_review_formula(pack_spec, review_document, contract, missing)
 
     expansion_routes = contract.get("expansion_routes", {})
     expansion_checks = contract.get("expansion_checks", {})
     if isinstance(expansion_routes, dict):
         for expansion_name, required_routes in expansion_routes.items():
+            expansion_path = pack_spec.source / "formulas" / f"{expansion_name}.formula.toml"
             expansion_document = load_methodology_formula(pack_spec.source, str(expansion_name), missing)
             if expansion_document:
+                formula_paths.append(expansion_path)
                 validate_methodology_expansion(
                     pack_spec,
                     str(expansion_name),
@@ -2310,6 +2510,12 @@ def validate_methodology_flow_contract(pack_spec: PackSpec) -> None:
                     str(expansion_checks.get(expansion_name, "")) if isinstance(expansion_checks, Mapping) else "",
                     missing,
                 )
+
+    for path in formula_paths:
+        try:
+            validate_formula_route_separation(path, context=f"{pack_spec.name} methodology formula")
+        except GateError as exc:
+            missing.append(str(exc))
 
     if missing:
         raise GateError(
@@ -2564,6 +2770,11 @@ def validate_gastown_orchestration_contract(pack_source: Path) -> None:
         for fragment in required_fragments:
             if fragment not in text:
                 missing.append(f"{formula_name}: missing contract fragment {fragment!r}")
+        try:
+            validate_formula_route_separation(path, context="Gastown orchestration formula")
+        except GateError as exc:
+            missing.append(str(exc))
+
     idle_contract_files = {
         "agents/refinery/agent.toml": (
             'sleep_after_idle = "300s"',
@@ -2621,8 +2832,10 @@ def run_review_gate(
         poll_interval=poll_interval,
     )
     validate_review_report(root_bead, workspace, env=env, pack_spec=pack_spec)
+    beads = list_beads(gc_bin, workspace, env=env)
+    validate_route_separation(beads, context=f"{pack_spec.name} review gate")
     validate_required_routes(
-        list_beads(gc_bin, workspace, env=env),
+        beads,
         pack_spec.required_review_routes,
         context=f"{pack_spec.name} review gate",
     )
@@ -2647,14 +2860,16 @@ def run_build_gate(
         poll_interval=poll_interval,
     )
     validate_build_basic_artifacts(root_bead, rig_dir=workspace.rig_dir, env=env, validator_source=pack_spec.validator_source)
+    beads = list_beads(gc_bin, workspace, env=env)
     validate_build_basic_result(
         workspace.rig_dir,
-        list_beads(gc_bin, workspace, env=env),
+        beads,
         env=env,
         timeout=parse_duration("2m"),
     )
+    validate_route_separation(beads, context=f"{pack_spec.name} build gate")
     validate_required_routes(
-        list_beads(gc_bin, workspace, env=env),
+        beads,
         pack_spec.required_build_routes,
         context=f"{pack_spec.name} build gate",
     )
@@ -2689,6 +2904,8 @@ def run_gastown_orchestration_gate(
         poll_interval=poll_interval,
     )
     require_gastown_review_report(assignment)
+    beads = list_beads(gc_bin, workspace, env=env)
+    validate_route_separation(beads, context=f"{pack_spec.name} gastown orchestration gate")
 
 
 def expand_pack_selection(selection: str) -> list[str]:

@@ -1,0 +1,144 @@
+description = """
+LazyJJ workflow for real work that resolves LazyJJ stack conflicts.
+
+Use this when the assigned bead is an actual conflict-resolution job. The bead
+supplies the conflicted stack, expected outcome, affected files, and
+verification. This formula supplies the LazyJJ procedure.
+
+This formula stays aligned with the upstream LazyJJ tutorial:
+`website/src/content/docs/tutorials/resolve-conflicts.md`.
+"""
+formula = "mol-lazyjj-resolve-conflicts"
+version = 1
+
+[vars]
+[vars.conflicted_change_id]
+description = "Conflicted change ID to edit directly."
+required = true
+
+[vars.verification_command]
+description = "Focused command that proves the resolved stack."
+default = ""
+
+[[steps]]
+id = "inspect"
+title = "View conflicts"
+description = """
+Inspect the current conflict state.
+
+```bash
+# Check current commit
+jj status
+
+# View all commits - conflicted ones are marked
+jj log -r stack
+
+jj diff
+```
+
+To list conflicted commits:
+
+```bash
+jj log -r "conflict()"
+```
+
+Exit criteria:
+
+- conflicted files and commits are identified
+"""
+
+[[steps]]
+id = "resolve"
+title = "Resolve the conflicted commit"
+needs = ["inspect"]
+description = """
+Navigate to the conflicted commit and open the resolver.
+
+```bash
+# Navigate to the conflicted commit
+jj edit "{{conflicted_change_id}}"
+
+# Open the conflict resolver
+jj resolve
+{{verification_command}}
+```
+
+Exit criteria:
+
+- the resolver has been run for the conflicted commit
+"""
+
+[[steps]]
+id = "sync-conflicts"
+title = "Resolve conflicts from sync"
+description = """
+Use this path when sync introduces conflicts.
+
+```bash
+# Sync brings in changes that conflict
+jj stack-sync
+
+# Resolve before pushing
+jj resolve
+jj stack-submit
+```
+
+Exit criteria:
+
+- sync conflicts are resolved
+- the updated stack is pushed
+"""
+
+[[steps]]
+id = "mid-stack-conflicts"
+title = "Resolve mid-stack conflicts"
+description = """
+Use this path when editing a stack commit creates descendant conflicts.
+
+```bash
+jj log
+jj edit <conflicted-descendant-change-id>
+jj status
+jj resolve
+{{verification_command}}
+```
+
+Exit criteria:
+
+- descendant conflicts are resolved where they occur
+"""
+
+[[steps]]
+id = "recover"
+title = "Recover from a bad resolution"
+description = """
+Undo a bad resolution and resolve again.
+
+```bash
+# Resolved conflicts
+jj resolve
+# ... made wrong choices ...
+
+# Undo the resolution
+jj undo
+# Conflict state restored, can resolve again
+```
+
+For AI-assisted conflict resolution:
+
+```bash
+# AI-assisted conflict resolution
+jj claude-resolve
+```
+
+If Claude's resolution is wrong:
+
+```bash
+jj undo  # Undo Claude's resolution
+jj resolve  # Resolve manually
+```
+
+Exit criteria:
+
+- the conflict state is correct or restored for another resolution attempt
+"""

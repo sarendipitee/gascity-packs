@@ -1,0 +1,12 @@
+---
+title: mol-packer-route workflow
+---
+flowchart TD
+    load-request["Load request from rig root"]
+    plan-pack-routes["Plan pack routes"]
+    create-pack-beads["Create pack-scoped beads"]
+    dispatch-pack-beads["Dispatch pack beads"]
+
+    load-request --> plan-pack-routes
+    plan-pack-routes --> create-pack-beads
+    create-pack-beads --> dispatch-pack-beads

@@ -1,0 +1,5 @@
+[order]
+description = "Print a jjw workspace health report periodically"
+trigger = "cooldown"
+interval = "5m"
+exec = "sh -c 'echo jjw workspace report; echo root: ${PWD}; jjw version; jjw list --verbose'"

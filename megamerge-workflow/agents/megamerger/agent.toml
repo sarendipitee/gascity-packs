@@ -1,0 +1,9 @@
+scope = "rig"
+provider = "omp-megamerger"
+wake_mode = "fresh"
+formula = "mol-megamerger-work"
+work_dir = "{{.RigRoot}}"
+nudge = "Use the Gas City megamerge workflow to reconcile related jj lines, route hunks back to their owners, and keep the merge as the validation surface."
+idle_timeout = "2h"
+min_active_sessions = 0
+max_active_sessions = 2

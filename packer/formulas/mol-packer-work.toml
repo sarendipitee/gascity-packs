@@ -1,0 +1,146 @@
+description = """
+Maintain one gascity-packs pack from a pack-routed sparse jj workspace.
+
+Use this formula for beads that name a target pack explicitly. The session is
+expected to start from the shared packsmith pool. The triggering bead must carry
+`gc.pack` and `gc.pack_root` metadata. GC uses that metadata to place the
+session under the target pack directory before pre_start runs. The pre_start
+script then creates a jj workspace and sparse-checks out that pack folder plus
+shared registry, tests, and documentation surfaces, rather than the whole pack
+set.
+
+Broad or ambiguous requests should go to `mol-packer-route` first. This formula
+is for already-routed implementation work.
+
+This formula extends `mol-jj-change`: every logical change the agent produces
+must pass through the change-perfecting steps before the bead moves on. The
+pack-named workspace `.gc/workspaces/<rig>/packs/<pack>` is the integration
+workspace for that pack. Child workspaces under it land back into that pack
+workspace first; the pack workspace later lands to the default workspace
+working copy (`default@`) for full rig testing.
+"""
+formula = "mol-packer-work"
+version = 1
+extends = ["mol-jj-change"]
+
+[[steps]]
+id = "load-pack-task"
+title = "Load pack task and workspace scope"
+description = """
+Run `gc hook`, read the assigned bead, identify the target pack from the bead
+metadata, and inspect the current sparse checkout.
+
+```bash
+gc hook
+pwd
+jj status
+jj sparse list
+```
+
+Exit criteria:
+
+- target pack is explicit
+- current workspace is a jj workspace created from the bead's `gc.pack`
+- required shared files are known
+- sparse checkout is understood before editing
+- broad routing work has already been handled by packrouter
+"""
+
+[[steps]]
+id = "claim-and-describe"
+title = "Claim the bead and describe the starting commit"
+needs = ["load-pack-task"]
+description = """
+Claim the routed bead and record a clear workspace commit tied to this session.
+This prevents accidental mixing with the previous agent's work and gives other
+workspaces a readable signal of who is doing what.
+
+```bash
+gc hook --claim --json
+jj describe -m "<pack>: <short task summary>"
+```
+
+Exit criteria:
+
+- bead is claimed
+- `@` has a description that names the pack and task
+"""
+
+[[steps]]
+id = "apply-pack-change"
+title = "Apply one pack-scoped logical change"
+needs = ["claim-and-describe"]
+description = """
+Edit only the target pack and required shared files. If the bead target does not
+match the sparse workspace, stop with a clear note instead of editing the wrong
+pack. If another pack or shared surface is truly needed, widen sparse checkout
+intentionally with `jj sparse set --add`.
+
+Work in logical steps. Each time you finish a coherent, self-contained change,
+run the imported `mol-jj-change` steps against it:
+
+- inspect the current change
+- ensure it is atomic
+- write a clear `<pack>: <description>` message
+- verify with `gc lint <pack>` and relevant tests
+- leave a clean successor with `jj new`
+
+Do not batch multiple unrelated changes into one commit just because they belong
+to the same bead. A bead may contain several logical changes; perfect each one.
+
+Rebase onto the current integration base only when the bead instructions say so,
+when that base has moved forward, or when you are about to run
+`mol-packer-complete`. Use `gc/<pack>` as the base in child workspaces and
+`default@` in the pack-named integration workspace. Do not rebase after every
+trivial change by default.
+
+Exit criteria:
+
+- changes are limited to the pack task
+- each logical change is described and verified
+- any sparse widening is justified by the bead
+"""
+
+[[steps]]
+id = "verify-pack"
+title = "Verify the bead's final state"
+needs = ["apply-pack-change"]
+description = """
+Run the narrowest relevant verification, usually `gc lint <pack>` for a pack
+manifest plus any repository tests named by the bead.
+
+Record the target pack, sparse patterns, and verification command in the bead
+notes so future maintainers can see which pack-scoped workspace handled it.
+
+Exit criteria:
+
+- verification command and result are recorded
+- remaining risk is explicit
+"""
+
+[[steps]]
+id = "prepare-for-integration"
+title = "Prepare the pack line for integration"
+needs = ["verify-pack"]
+description = """
+When the bead's changes are complete and each one is a perfect change, run
+`mol-packer-complete` to rebase onto the current integration base, move the
+right integration workspace to the landed tip, verify the integrated state, and
+leave a clean working copy.
+
+From a child workspace, `mol-packer-complete` integrates into the pack-named
+workspace so that pack's integration packsmith can keep receiving work and
+absorbing sibling workspaces. From the pack-named workspace, it integrates into
+`default@` for testing in a running Gas City. Do not release to `main` from a
+pack workspace; that is the packrouter release workflow.
+
+If the bead instructions say not to land yet (e.g. because sibling beads must
+land together), leave the workspace in a clean state and note in the bead why
+integration was deferred.
+
+Exit criteria:
+
+- either `mol-packer-complete` ran and the current integration target was moved
+  to the landed tip
+- or the workspace is clean with a clear note explaining the deferral
+"""

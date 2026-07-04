@@ -1,0 +1,15 @@
+[pack]
+name = "megamerge-workflow"
+version = "0.1.0"
+schema = 2
+description = "Megamerger agent workflow for repairing several related Jujutsu lines together."
+
+[imports.jj-hunk]
+source = "../jj-hunk"
+
+[providers.omp-megamerger]
+display_name = "Oh My Pi Megamerger"
+command = "/home/ubuntu/.bun/bin/omp"
+prompt_mode = "arg"
+ready_delay_ms = 1000
+path_check = "/home/ubuntu/.bun/bin/omp"

@@ -1,0 +1,1 @@
+../agents/packrouter/examples/workspace-routing.md

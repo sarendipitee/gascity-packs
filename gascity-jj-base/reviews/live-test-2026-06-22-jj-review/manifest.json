@@ -1,0 +1,25 @@
+{
+  "schema": "gc.docs.manifest.v1",
+  "workflow": "jj-review",
+  "purpose": "Live jj-review report for the gascity-jj-base source change.",
+  "documents": {
+    "review": {
+      "path": "gascity-jj-base/reviews/live-test-2026-06-22-jj-review/report.md",
+      "schema": "gc.build.review.v1",
+      "hash": "41d43830befef7668c6f0dabb08b41ca9f064096088860e7667b0e694d86d832",
+      "change_id": "ypryqolw"
+    }
+  },
+  "source": {
+    "workspace": "default",
+    "workspace_path": "/data/projects/doltlite-gascity/gascity-packs",
+    "change_id": "wwppnzmw",
+    "commit_id": "a62e1259",
+    "pack_path": "gascity-jj-base"
+  },
+  "context": {
+    "validation_bead": "gp-d9id",
+    "validation_verdict": "blocked",
+    "blocking_reason": "manifest missing; no manifest schema/hash/document paths readable; subject source change differs from workflow source change"
+  }
+}

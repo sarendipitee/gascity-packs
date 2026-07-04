@@ -1,0 +1,296 @@
+description = """
+Release workflow for the DoltLite-backed Gas City install path.
+
+This formula is intentionally city-rig aware. It coordinates the three rigs in
+this city that own the release path:
+
+- `beads-doltlite`: the source repo for the released `bd` binary.
+- `gascity`: the source repo for `gc init` and the clean-init smoke script.
+- `gascity-packs`: the pack repo that ships this beads-doltlite installer.
+
+The workflow treats every failed release check as product work, not as a local
+repair. Fixes must be made in a new jj revision in the owning rig, described
+before editing, and exported through an explicit bookmark. The release is not
+complete until the final step runs the clean `gc init` smoke script with the
+same DoltLite library, `bd` release, `gc` release, and gascity-packs ref that
+users will receive.
+"""
+formula = "beads-doltlite-release-smoke"
+version = 1
+contract = "graph.v2"
+type = "workflow"
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[vars]
+[vars.city_root]
+description = "Absolute path to the DoltLite Gas City integration city."
+default = "/data/projects/doltlite-gascity"
+
+[vars.beads_doltlite_rig]
+description = "City rig name for the beads-doltlite source repository."
+default = "beads-doltlite"
+
+[vars.beads_doltlite_repo]
+description = "Path to the beads-doltlite source repository for bd release fixes."
+default = "/data/projects/doltlite-gascity/beads-doltlite"
+
+[vars.gascity_rig]
+description = "City rig name for the gascity source repository."
+default = "gascity"
+
+[vars.gascity_repo]
+description = "Path to the gascity source repository for gc init and smoke-script fixes."
+default = "/data/projects/doltlite-gascity/gascity"
+
+[vars.gascity_packs_rig]
+description = "City rig name for the gascity-packs source repository."
+default = "gascity-packs"
+
+[vars.gascity_packs_repo]
+description = "Path to the gascity-packs source repository for installer pack fixes."
+default = "/data/projects/doltlite-gascity/gascity-packs"
+
+[vars.doltlite_version]
+description = "DoltLite library version used by the released bd binary and gc install path."
+default = "0.11.23"
+
+[vars.doltlite_download_base]
+description = "Optional DoltLite library release base URL. Leave empty for the pack default."
+default = ""
+
+[vars.bd_release_version]
+description = "Released beads-doltlite bd tag to install during clean gc init."
+default = "v1.0.5-doltlite.1"
+
+[vars.bd_release_base]
+description = "Optional bd release base URL. Leave empty for the pack default."
+default = ""
+
+[vars.gc_release_version]
+description = "Released DoltLite-linked gascity tag to install during clean gc init."
+required = true
+
+[vars.gc_release_base]
+description = "Optional gc release base URL. Leave empty for the pack default for gc_release_version."
+default = ""
+
+[vars.gc_release_api]
+description = "GitHub releases API used when the pack resolves the latest gc release."
+default = "https://api.github.com/repos/duncan4123/gascity/releases"
+
+[vars.gascity_packs_remote]
+description = "Remote repository whose commit should match the installed beads-doltlite pack lock."
+default = "https://github.com/duncan4123/gascity-packs"
+
+[vars.gascity_packs_ref]
+description = "Remote ref that gc init should resolve for the external beads-doltlite pack."
+default = "refs/heads/main"
+
+[vars.gascity_packs_source]
+description = "Pack source URL expected in the generated root pack.toml."
+default = "https://github.com/duncan4123/gascity-packs/tree/main/beads-doltlite"
+
+[vars.release_bookmark]
+description = "jj bookmark to set on each source revision that fixes a release blocker."
+default = "release/beads-doltlite-smoke"
+
+[vars.smoke_script]
+description = "City-relative clean gc init smoke script. This must be the final release check."
+default = "gascity/scripts/test-clean-doltlite-gc-init.sh"
+
+[vars.smoke_root]
+description = "Directory where the smoke script may create throwaway clean cities."
+default = "/data/projects"
+
+[vars.keep_smoke_city]
+description = "Set to 1 only when preserving a failed throwaway city for inspection."
+default = "0"
+
+[[steps]]
+id = "map-city-rigs"
+title = "Map release ownership to this city's rigs"
+metadata = { "gc.run_target" = "gc.run-operator", "gc.target_rigs" = "beads-doltlite,gascity,gascity-packs" }
+description = """
+Confirm the workflow is running from `{{city_root}}` and that all release-owner
+rigs from this city exist:
+
+```bash
+test -d "{{beads_doltlite_repo}}"
+test -d "{{gascity_repo}}"
+test -d "{{gascity_packs_repo}}"
+grep -n 'name = "{{beads_doltlite_rig}}"' "{{city_root}}/city.toml"
+grep -n 'name = "{{gascity_rig}}"' "{{city_root}}/city.toml"
+grep -n 'name = "{{gascity_packs_rig}}"' "{{city_root}}/city.toml"
+```
+
+Ownership for fixes:
+- `{{beads_doltlite_rig}}`: released `bd`, DoltLite DB open/init behavior, and
+  the binary's linked DoltLite library.
+- `{{gascity_rig}}`: `gc init`, installed `gc`, release selection, and the smoke
+  test script.
+- `{{gascity_packs_rig}}`: beads-doltlite pack install script, generated
+  `pack.toml`/`packs.lock`, issue-prefix seeding, type seeding, global
+  `beads.role` seeding, and wrapper install behavior.
+"""
+
+[[steps]]
+id = "jj-release-hygiene"
+title = "Prepare jj revisions and bookmarks for any fixes"
+needs = ["map-city-rigs"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.target_rigs" = "beads-doltlite,gascity,gascity-packs", "gc.jj_bookmark" = "{{release_bookmark}}" }
+description = """
+For each rig that needs a release fix, use jj discipline before editing:
+
+```bash
+cd "{{beads_doltlite_repo}}" && jj st
+cd "{{gascity_repo}}" && jj st
+cd "{{gascity_packs_repo}}" && jj st
+```
+
+Rules for this release workflow:
+- Do not amend an existing change unless the blocker belongs to that exact
+  change and the owner explicitly asks for it.
+- Start fixes with `jj new -m "<rig>: <release blocker fix>"`.
+- Describe the new revision before editing.
+- Put each unrelated gotcha in its own revision when it has a separate owner or
+  a separate rollback risk.
+- After verification, set `{{release_bookmark}}` on the head revision that
+  should be pushed for the owning rig:
+
+```bash
+jj bookmark set "{{release_bookmark}}" -r @
+jj git push --bookmark "{{release_bookmark}}"
+```
+
+If a gotcha is found but will not be fixed in this run, create a bead in the
+owning rig before continuing. Do not leave release knowledge only in chat.
+"""
+
+[[steps]]
+id = "verify-release-inputs"
+title = "Verify release variables before publishing"
+needs = ["jj-release-hygiene"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.target_rigs" = "beads-doltlite,gascity,gascity-packs" }
+description = """
+Verify the release matrix that the final smoke test will use:
+
+```bash
+printf 'DoltLite library: %s\n' "{{doltlite_version}}"
+printf 'bd release:       %s\n' "{{bd_release_version}}"
+printf 'gc release:       %s\n' "{{gc_release_version}}"
+printf 'packs remote:     %s\n' "{{gascity_packs_remote}}"
+printf 'packs ref:        %s\n' "{{gascity_packs_ref}}"
+printf 'packs source:     %s\n' "{{gascity_packs_source}}"
+git ls-remote "{{gascity_packs_remote}}" "{{gascity_packs_ref}}"
+```
+
+Do not release if any of these are unknown:
+- which DoltLite library the released `bd` was built against;
+- which DoltLite-linked `gc` release users will install;
+- which gascity-packs ref `gc init` resolves into `packs.lock`;
+- whether the generated city will get DB-backed `issue_prefix`,
+  `types.custom`, and global `beads.role` without local hand repair.
+"""
+
+[[steps]]
+id = "audit-install-gotchas"
+title = "Audit the known clean-init gotchas"
+needs = ["verify-release-inputs"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.target_rigs" = "gascity,gascity-packs" }
+description = """
+Before the final smoke, inspect the install path for the issues that have
+already broken clean DoltLite users:
+
+- Fresh `gc init` must skip automatic local source and local libdoltlite
+  discovery unless explicitly overridden.
+- The `bd` release and the installed `gc` must use the same DoltLite library
+  version, `{{doltlite_version}}`.
+- The pack must default to a valid latest DoltLite-linked `gc` release when no
+  explicit `GC_DOLTLITE_GC_RELEASE_VERSION` is provided.
+- Missing release assets and missing checksum entries must fail before a bogus
+  binary path is reported as usable.
+- The generated root `pack.toml` must point at
+  `{{gascity_packs_source}}`.
+- `packs.lock` must resolve `{{gascity_packs_ref}}` from
+  `{{gascity_packs_remote}}`.
+- DoltLite runtime config must be seeded in the DB, not only in config files:
+  `issue_prefix` and `types.custom` must survive `bd sql` inspection.
+- The installer must seed `git config --global beads.role maintainer` when no
+  role exists, so users do not see the GH#2950 warning.
+- The installed global `bd` wrapper must not point at a libdoltlite directory
+  inside a deleted throwaway city.
+
+If any check fails, stop and fix it in a new jj revision in `{{gascity_rig}}`
+or `{{gascity_packs_rig}}`, then return to this step.
+"""
+
+[[steps]]
+id = "release-artifacts"
+title = "Publish or select the release artifacts"
+needs = ["audit-install-gotchas"]
+metadata = { "gc.run_target" = "gc.publisher", "gc.target_rigs" = "beads-doltlite,gascity" }
+description = """
+Ensure the release artifacts referenced by this formula exist before the final
+clean install:
+
+- `{{bd_release_version}}` in the `{{beads_doltlite_rig}}` release stream has a
+  DoltLite-linked `bd` binary and checksums.
+- `{{gc_release_version}}` in the `{{gascity_rig}}` release stream has a
+  DoltLite-linked `gc` archive and checksums.
+- Both releases are tied back to pushed jj revisions or an intentional upstream
+  base. Do not cut a release from a detached local build.
+
+Record the release URLs and the commit/change IDs in the source bead before
+continuing.
+"""
+
+[[steps]]
+id = "clean-gc-init-smoke"
+title = "Run the clean DoltLite gc init smoke test"
+needs = ["release-artifacts"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.target_rigs" = "gascity,gascity-packs", "gc.final_release_check" = "true" }
+description = """
+This is the final release check. Run it from `{{city_root}}`; it must create a
+throwaway clean city and prove the install works without local repairs:
+
+```bash
+cd "{{city_root}}"
+GC_DOLTLITE_VERSION="{{doltlite_version}}" \
+GC_DOLTLITE_DOWNLOAD_BASE="{{doltlite_download_base}}" \
+GC_DOLTLITE_BD_RELEASE_VERSION="{{bd_release_version}}" \
+GC_DOLTLITE_BD_RELEASE_BASE="{{bd_release_base}}" \
+GC_DOLTLITE_GC_RELEASE_VERSION="{{gc_release_version}}" \
+GC_DOLTLITE_GC_RELEASE_BASE="{{gc_release_base}}" \
+GC_DOLTLITE_GC_RELEASE_API="{{gc_release_api}}" \
+GC_INIT_SMOKE_EXPECT_DOLTLITE_VERSION="{{doltlite_version}}" \
+GC_INIT_SMOKE_EXPECT_BD_RELEASE="{{bd_release_version}}" \
+GC_INIT_SMOKE_EXPECT_GC_RELEASE="{{gc_release_version}}" \
+GC_INIT_SMOKE_GASCITY_PACKS_REPO="{{gascity_packs_remote}}" \
+GC_INIT_SMOKE_GASCITY_PACKS_REF="{{gascity_packs_ref}}" \
+GC_INIT_SMOKE_GASCITY_PACK_SOURCE="{{gascity_packs_source}}" \
+GC_INIT_SMOKE_ROOT="{{smoke_root}}" \
+KEEP_GC_INIT_SMOKE="{{keep_smoke_city}}" \
+"{{smoke_script}}"
+```
+
+Pass criteria:
+- the script ends with a successful clean `gc init`;
+- generated `pack.toml` and `packs.lock` match the gascity-packs inputs above;
+- installed `bd` comes from `{{bd_release_version}}`;
+- installed `gc` comes from `{{gc_release_version}}`;
+- both installed binaries use DoltLite library `{{doltlite_version}}`;
+- `bd create` succeeds in the throwaway city;
+- DB-backed `issue_prefix`, `types.custom`, and global `beads.role` are present;
+- the script restores the previous global `gc`/`bd` entrypoints and cleans the
+  throwaway city unless `{{keep_smoke_city}}` is `1`.
+"""
+
+[steps.check]
+max_attempts = 1
+
+[steps.check.check]
+mode = "exec"
+path = "gascity/scripts/test-clean-doltlite-gc-init.sh"
+timeout = "30m"

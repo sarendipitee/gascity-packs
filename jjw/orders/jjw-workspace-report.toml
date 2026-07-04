@@ -1,0 +1,6 @@
+[order]
+description = "Route a dog wisp to report jjw workspace health"
+formula = "mol-jjw-workspace-report"
+trigger = "cooldown"
+interval = "5m"
+pool = "dog"

@@ -1,0 +1,10 @@
+---
+title: mol-packer-work workflow
+---
+flowchart TD
+    load-pack-task["Load pack task and workspace scope"]
+    apply-pack-change["Apply pack-scoped change"]
+    verify-pack["Verify pack"]
+
+    load-pack-task --> apply-pack-change
+    apply-pack-change --> verify-pack

@@ -1,0 +1,7 @@
+scope = "rig"
+provider = "codex-gpt-5-5"
+wake_mode = "resume"
+work_dir = "{{.RigRoot}}"
+nudge = "Await a concrete LazyJJ pack request from the rig root/default workspace. Do not create beads from this startup nudge alone."
+idle_timeout = "2h"
+max_active_sessions = 1
