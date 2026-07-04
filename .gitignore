@@ -19,6 +19,8 @@ __pycache__/
 
 # Gas City
 !.beads/identity.toml
+!.beads/config.yaml
+!.beads/metadata.json
 
 # bt (beadstui) local config and caches
 .bt/

@@ -13,7 +13,7 @@ import (
 // packsFS embeds the pack trees consumers depend on. Additional packs
 // join this pattern list as consumers need them.
 //
-//go:embed all:gastown all:gascity
+//go:embed all:gastown all:gascity all:beads-doltlite-init
 var packsFS embed.FS
 
 // Gastown returns the gastown pack content rooted at the pack directory
@@ -26,6 +26,12 @@ func Gastown() fs.FS {
 // at the pack directory (pack.toml at the top level).
 func Gascity() fs.FS {
 	return packSub("gascity")
+}
+
+// BeadsDoltliteInit returns the minimal DoltLite bootstrap pack content
+// rooted at the pack directory (pack.toml at the top level).
+func BeadsDoltliteInit() fs.FS {
+	return packSub("beads-doltlite-init")
 }
 
 func packSub(name string) fs.FS {
