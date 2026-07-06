@@ -197,12 +197,12 @@ test_polecat_startup_uses_standard_hook_claim() {
     prompt="$GASTOWN/agents/polecat/prompt.template.md"
     propulsion="$GASTOWN/template-fragments/propulsion.template.md"
 
-    grep -F 'gc hook --claim --json' "$agent" >/dev/null ||
-        fail "polecat nudge should call the standard hook claim path"
-    grep -F 'gc hook --claim --json' "$prompt" >/dev/null ||
-        fail "polecat prompt should call the standard hook claim path"
-    grep -F 'gc hook --claim --json' "$propulsion" >/dev/null ||
-        fail "polecat propulsion fragment should call the standard hook claim path"
+    grep -F '\"$GC_BIN\" hook --claim --json' "$agent" >/dev/null ||
+        fail "polecat nudge should call the standard hook claim path via \$GC_BIN"
+    grep -F '"$GC_BIN" hook --claim --json' "$prompt" >/dev/null ||
+        fail "polecat prompt should call the standard hook claim path via \$GC_BIN"
+    grep -F '"$GC_BIN" hook --claim --json' "$propulsion" >/dev/null ||
+        fail "polecat propulsion fragment should call the standard hook claim path via \$GC_BIN"
     grep -F 'After closing any formula step bead, immediately run' "$prompt" >/dev/null ||
         fail "polecat prompt must require hook continuation after each formula step"
     grep -F 'After closing a step bead,' "$propulsion" >/dev/null ||

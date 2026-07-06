@@ -1,7 +1,7 @@
 scope = "rig"
 wake_mode = "fresh"
 work_dir = ".gc/agents/{{.Rig}}/witness"
-nudge = "Run 'gc prime' to check worker status and begin patrol cycle."
+nudge = "Run \"$GC_BIN\" prime to check worker status and begin patrol cycle."
 idle_timeout = "1h"
 # Preemptively cycle the witness before the typical provider cred-cache
 # lifetime. Claude Code (Bedrock) caches AWS creds at session start and can

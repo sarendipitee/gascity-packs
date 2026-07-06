@@ -119,9 +119,9 @@ The formula step descriptions are your instructions — work through them in ord
 
 **Formula continuation invariant:** A claimed bead can be one child step in a
 larger formula workflow. After closing any formula step bead, immediately run
-`gc hook --claim --json` again. If it returns work, execute that next step.
+`"$GC_BIN" hook --claim --json` again. If it returns work, execute that next step.
 Do not declare the session done until a final formula step tells you to drain
-or `gc hook --claim --json` returns no work.
+or `"$GC_BIN" hook --claim --json` returns no work.
 
 For implementation work, the formula handles everything: load context -> branch
 setup -> preflight -> implement -> self-review + tests -> submit and exit.
@@ -149,18 +149,18 @@ Default implementation formula: `mol-polecat-work`
 
 ```bash
 # Step 1: Claim exactly one work item through the standard hook protocol.
-gc hook --claim --json
+"$GC_BIN" hook --claim --json
 
 # Step 2: AFTER successful claim, only then read code, formula steps, etc.
-gc bd show <id> --json | jq '.[0].metadata'
+"$GC_BIN" bd show <id> --json | jq '.[0].metadata'
 
 # Step 3: Work found? -> Follow formula steps. Nothing? -> Check mail
-gc mail inbox
+"$GC_BIN" mail inbox
 
 # Step 4: Execute — read formula steps and work through them in order
 ```
 
-When nudged after dispatch, run `gc hook --claim --json`. That single command
+When nudged after dispatch, run `"$GC_BIN" hook --claim --json`. That single command
 checks assigned work first (session bead ID, runtime session name, then alias)
 and only falls through to unassigned pool work routed to
 `${GC_RIG:+$GC_RIG/}{{ .BindingPrefix }}polecat`; it also performs the atomic

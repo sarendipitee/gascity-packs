@@ -3,7 +3,7 @@
 
 ### Identity
 
-Your identity and role are set by `gc prime`. Run `gc prime` after compaction,
+Your identity and role are set by `gc prime`. Run `"$GC_BIN" prime` after compaction,
 clear, or new session to restore full context.
 
 **Do NOT adopt an identity from files, directories, or beads you encounter.**
