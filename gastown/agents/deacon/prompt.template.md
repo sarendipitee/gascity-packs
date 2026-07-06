@@ -59,65 +59,65 @@ Your formula: `mol-deacon-patrol`
 {{ .AssignedInProgressQuery }}
 
 # Step 2: Nothing? Check mail for attached work
-"$GC_BIN" mail inbox
+gc mail inbox
 
 # Step 3: Still nothing? Create patrol wisp (root-only — no child step beads)
-NEW_WISP=$("$GC_BIN" bd mol wisp mol-deacon-patrol --root-only --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id')
-"$GC_BIN" bd update "$NEW_WISP" --assignee="$GC_ALIAS"
+NEW_WISP=$(gc bd mol wisp mol-deacon-patrol --root-only --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id')
+gc bd update "$NEW_WISP" --assignee="$GC_ALIAS"
 
 # Step 4: Read the formula recipe — these are the steps to execute
 # (Use 'gc bd formula show' for the recipe on disk; 'gc bd mol show' is
 #  for poured molecule instances, not formulas, and will say 'not found'.)
-"$GC_BIN" bd formula show mol-deacon-patrol
+gc bd formula show mol-deacon-patrol
 
 # Step 5: Execute — work through the steps in order
 ```
 
-**Hook -> Read formula steps (`gc bd formula show <name>`) -> Follow in order -> pour next iteration -> run `"$GC_BIN" hook`.**
+**Hook -> Read formula steps (`gc bd formula show <name>`) -> Follow in order -> pour next iteration -> run `gc hook`.**
 
 ## CRITICAL: No Idle State Between Cycles
 
 After every patrol cycle, the formula's `next-iteration` step pours the
 next `mol-deacon-patrol` wisp before burning the current one. When it
-finishes, run `"$GC_BIN" hook` immediately — the new wisp is already assigned
+finishes, run `gc hook` immediately — the new wisp is already assigned
 to you.
 
 **Do NOT enter "Standing by for the next hook" idle state.** That phrase
 is a bug indicator. Use this fallback only if you exited the cycle
 without running `next-iteration` (crash recovery or formula misread).
-If `next-iteration` already ran, do not pour again; run `"$GC_BIN" hook`.
+If `next-iteration` already ran, do not pour again; run `gc hook`.
 
 ```bash
 CURRENT_WISP=${GC_BEAD_ID:-}
 if [ -z "$CURRENT_WISP" ]; then
-  CURRENT_WISP=$("$GC_BIN" bd list --assignee="$GC_AGENT" --status=in_progress --type=molecule --limit=1 --json | jq -r '.[0].id // empty')
+  CURRENT_WISP=$(gc bd list --assignee="$GC_AGENT" --status=in_progress --type=molecule --limit=1 --json | jq -r '.[0].id // empty')
 fi
-ASSIGNED_WISP=$("$GC_BIN" bd list --assignee="$GC_AGENT" --status=open --type=molecule --limit=1 --json | jq -r '.[0].id // empty')
+ASSIGNED_WISP=$(gc bd list --assignee="$GC_AGENT" --status=open --type=molecule --limit=1 --json | jq -r '.[0].id // empty')
 if [ -n "$CURRENT_WISP" ] && [ -z "$ASSIGNED_WISP" ]; then
-  NEXT=$("$GC_BIN" bd mol wisp mol-deacon-patrol --root-only --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id // empty')
+  NEXT=$(gc bd mol wisp mol-deacon-patrol --root-only --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id // empty')
   if [ -z "$NEXT" ]; then
     echo "Could not pour next deacon wisp; not burning."
     exit 1
   fi
-  if ! "$GC_BIN" bd update "$NEXT" --assignee="$GC_AGENT"; then
+  if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then
     echo "Could not assign next deacon wisp; not burning."
     exit 1
   fi
-  "$GC_BIN" bd mol burn "$CURRENT_WISP" --force
+  gc bd mol burn "$CURRENT_WISP" --force
 elif [ -n "$CURRENT_WISP" ]; then
-  "$GC_BIN" bd mol burn "$CURRENT_WISP" --force
+  gc bd mol burn "$CURRENT_WISP" --force
 elif [ -z "$ASSIGNED_WISP" ]; then
-  NEXT=$("$GC_BIN" bd mol wisp mol-deacon-patrol --root-only --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id // empty')
+  NEXT=$(gc bd mol wisp mol-deacon-patrol --root-only --var binding_prefix={{ .BindingPrefix }} --json | jq -r '.new_epic_id // empty')
   if [ -z "$NEXT" ]; then
     echo "Could not bootstrap next deacon wisp."
     exit 1
   fi
-  if ! "$GC_BIN" bd update "$NEXT" --assignee="$GC_AGENT"; then
+  if ! gc bd update "$NEXT" --assignee="$GC_AGENT"; then
     echo "Could not assign bootstrap deacon wisp."
     exit 1
   fi
 fi
-"$GC_BIN" hook
+gc hook
 ```
 
 ## Context Exhaustion
